@@ -18,6 +18,7 @@ interface JamendoApiService {
         @Query("search") query: String? = null,
         @Query("order") order: String = "relevance",
         @Query("include") include: String = "musicinfo stats",
-        @Query("audiodownload_allowed") downloadAllowed: Boolean = true
+        @Query("audiodownload_allowed") downloadAllowed: Boolean = true,
+        @Query("audiodlformat") downloadFormat: String = "mp32"
     ): JamendoResponse<JamendoTrack>
 }

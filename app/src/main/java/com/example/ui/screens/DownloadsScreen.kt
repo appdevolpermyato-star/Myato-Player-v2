@@ -692,8 +692,10 @@ fun DownloadsScreen(
                 selectedTab = 2
             },
             onDownloadJamendoMatch = { jamTrack ->
+                // Prefer audiodownload field for direct download if available
+                val downloadUrl = jamTrack.audiodownload?.takeIf { it.isNotBlank() } ?: jamTrack.audio
                 viewModel.startDownload(
-                    url = jamTrack.audio,
+                    url = downloadUrl,
                     title = jamTrack.name,
                     artist = jamTrack.artist_name,
                     album = jamTrack.album_name,
@@ -735,8 +737,9 @@ fun DownloadsScreen(
                             val arcDoc = item.authorizedMatch
                             
                             if (jamTrack != null) {
+                                val downloadUrl = jamTrack.audiodownload?.takeIf { it.isNotBlank() } ?: jamTrack.audio
                                 viewModel.startDownload(
-                                    url = jamTrack.audio,
+                                    url = downloadUrl,
                                     title = jamTrack.name,
                                     artist = jamTrack.artist_name,
                                     album = jamTrack.album_name,
