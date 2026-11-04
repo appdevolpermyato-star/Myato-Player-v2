@@ -237,7 +237,7 @@ class YouTubeViewModel : ViewModel() {
                 if (tracks.isEmpty()) {
                     val broadRes = jamendoApi.searchTracks(
                         clientId = clientId,
-                        query = "$cleanTitle $cleanArtist",
+                        search = "$cleanTitle $cleanArtist",
                         limit = 5
                     )
                     tracks = broadRes.results.filter { it.audiodownload_allowed }
