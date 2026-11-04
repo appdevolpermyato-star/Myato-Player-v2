@@ -23,7 +23,13 @@ data class Song(
     val folder: String? = null,
     val isDownloaded: Boolean = false
 ) {
-    fun getUri(): Uri = Uri.parse(mediaUri)
+    fun getUri(): Uri {
+        return when {
+            mediaUri.startsWith("content://") || mediaUri.startsWith("http://") || mediaUri.startsWith("https://") -> Uri.parse(mediaUri)
+            mediaUri.startsWith("file://") -> Uri.parse(mediaUri)
+            else -> Uri.fromFile(java.io.File(mediaUri))
+        }
+    }
 }
 
 @Serializable

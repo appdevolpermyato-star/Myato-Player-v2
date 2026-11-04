@@ -34,6 +34,10 @@ class MusicRepository(
 
     val downloadEngine = DownloadEngine(context, musicDao)
 
+    suspend fun repairDownloads() {
+        downloadEngine.repairExistingDownloads()
+    }
+
     suspend fun recordSongPlayed(songId: String) {
         musicDao.recordSongPlayed(songId, System.currentTimeMillis())
     }

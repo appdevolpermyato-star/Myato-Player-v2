@@ -110,6 +110,7 @@ class MusicViewModel(
                     }
                 }
             }
+            repository.repairDownloads()
         }
     }
 
@@ -153,6 +154,23 @@ class MusicViewModel(
             override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
                 _playbackSpeed.value = playbackParameters.speed
             }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                Log.e("MusicViewModel", "Playback error [${error.errorCodeName}]: ${error.message}", error)
+                val msg = when (error.errorCode) {
+                    androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+                    androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+                    androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED ->
+                        "Formato de áudio não suportado ou arquivo corrompido."
+                    androidx.media3.common.PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ->
+                        "Arquivo local não encontrado no armazenamento."
+                    androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+                    androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
+                        "Falha de conexão com a rede."
+                    else -> "Erro na reprodução: ${error.localizedMessage ?: "Verifique o arquivo"}"
+                }
+                _playbackState.value = PlaybackState.Error(msg)
+            }
         })
         updatePlaybackState()
 
@@ -185,6 +203,16 @@ class MusicViewModel(
     }
 
     fun playSong(song: Song) {
+        if (song.isDownloaded) {
+            val path = if (song.mediaUri.startsWith("file://")) Uri.parse(song.mediaUri).path else song.mediaUri
+            if (path != null && !path.startsWith("content://") && !path.startsWith("http")) {
+                val f = java.io.File(path)
+                if (!f.exists() || f.length() < 1024L) {
+                    _playbackState.value = PlaybackState.Error("Arquivo '${song.title}' não foi encontrado no dispositivo ou está corrompido.")
+                    return
+                }
+            }
+        }
         val queue = if (_currentQueue.value.any { it.id == song.id }) {
             _currentQueue.value
         } else {
@@ -304,8 +332,32 @@ class MusicViewModel(
     }
 
     // Downloader controls
-    fun startDownload(url: String, title: String? = null, artist: String? = null) {
-        repository.downloadEngine.startDownload(url, title, artist)
+    fun startDownload(
+        url: String,
+        title: String? = null,
+        artist: String? = null,
+        album: String? = null,
+        expectedSize: Long? = null,
+        expectedMd5: String? = null,
+        expectedSha1: String? = null,
+        expectedDuration: Long? = null
+    ) {
+        repository.downloadEngine.startDownload(
+            url = url,
+            customTitle = title,
+            customArtist = artist,
+            customAlbum = album,
+            expectedSize = expectedSize,
+            expectedMd5 = expectedMd5,
+            expectedSha1 = expectedSha1,
+            expectedDuration = expectedDuration
+        )
+    }
+
+    fun repairExistingDownloads() {
+        viewModelScope.launch {
+            repository.repairDownloads()
+        }
     }
 
     fun pauseDownload(id: String) {

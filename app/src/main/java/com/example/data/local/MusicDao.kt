@@ -104,4 +104,10 @@ interface MusicDao {
 
     @Query("SELECT * FROM downloads")
     suspend fun getAllDownloadsOnce(): List<DownloadItem>
+
+    @Update
+    suspend fun updateSong(song: Song)
+
+    @Query("SELECT * FROM songs WHERE isDownloaded = 1 OR id LIKE 'dl_%'")
+    suspend fun getDownloadedSongsOnce(): List<Song>
 }

@@ -25,12 +25,13 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.DownloadItem
 import com.example.data.model.DownloadStatus
 import com.example.data.model.Song
-import com.example.ui.music.MusicViewModel
 import com.example.data.network.ArchiveDoc
 import com.example.data.network.ArchiveFile
 import com.example.data.network.ArchiveMetadata
 import com.example.ui.archive.ArchiveUiState
 import com.example.ui.archive.ArchiveViewModel
+import com.example.ui.music.MusicViewModel
+import com.example.ui.music.PlaybackState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,15 +39,25 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
     val downloads by viewModel.allDownloads.collectAsState()
     val downloadedSongs by viewModel.downloadedSongs.collectAsState()
     val archiveState by archiveViewModel.uiState.collectAsState()
+    val playbackState by viewModel.playbackState.collectAsState()
 
     var urlInput by remember { mutableStateOf("") }
     var titleInput by remember { mutableStateOf("") }
     var searchIAInput by remember { mutableStateOf("") }
     var showAdvancedInput by remember { mutableStateOf(false) }
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Concluídos, 1: Ativos, 2: Pesquisar IA
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Biblioteca, 1: Ativos, 2: Pesquisar IA
+
+    // Trigger repair on entering screen to verify existing and old downloads
+    LaunchedEffect(Unit) {
+        viewModel.repairExistingDownloads()
+    }
 
     val activeDownloads = remember(downloads) {
         downloads.filter { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.PAUSED || it.status == DownloadStatus.FAILED }
+    }
+
+    val failedDownloads = remember(downloads) {
+        downloads.filter { it.status == DownloadStatus.FAILED }
     }
 
     val launcher = rememberLauncherForActivityResult(
@@ -62,8 +73,60 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // HEADER
-        HeaderSection("Sistema de Downloads")
+        // HEADER WITH REPAIR ACTION
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Downloads & Internet Archive",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            IconButton(
+                onClick = { viewModel.repairExistingDownloads() },
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Build,
+                    contentDescription = "Verificar e Reparar Arquivos",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
+        // PLAYBACK ERROR BANNER (IF ANY)
+        if (playbackState is PlaybackState.Error) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ErrorOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = (playbackState as PlaybackState.Error).message,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
 
         // 1. TABS
         TabRow(
@@ -102,7 +165,7 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
         // 2. TAB CONTENT
         when (selectedTab) {
             0 -> {
-                // Completed downloaded and imported songs
+                // Completed downloaded songs in library
                 if (downloadedSongs.isEmpty()) {
                     Box(
                         modifier = Modifier
@@ -124,7 +187,7 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Use a aba 'Pesquisar IA' ou cole um link direto.",
+                                text = "Pesquise no Internet Archive ou insira um link direto para baixar áudios autorizados.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -147,19 +210,19 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                 }
             }
             1 -> {
-                // Active downloads + Direct Link Input
+                // Active downloads & Direct Link Input
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // URL Input Card
+                    // Direct Link Input Card
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
                         shape = RoundedCornerShape(16.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                text = "Baixar por Link Direto",
+                                text = "Baixar por Link Direto ou Item",
                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -167,60 +230,121 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                             OutlinedTextField(
                                 value = urlInput,
                                 onValueChange = { urlInput = it },
-                                placeholder = { Text("Cole o link direto (MP3, FLAC, WAV...)") },
+                                placeholder = { Text("Cole o link direto (.mp3, .flac) ou ID do Internet Archive") },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp)
                             )
-                            
+
                             AnimatedVisibility(visible = showAdvancedInput) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                OutlinedTextField(
-                                    value = titleInput,
-                                    onValueChange = { titleInput = it },
-                                    placeholder = { Text("Nome da música (opcional)") },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
+                                Column(modifier = Modifier.padding(top = 8.dp)) {
+                                    OutlinedTextField(
+                                        value = titleInput,
+                                        onValueChange = { titleInput = it },
+                                        placeholder = { Text("Nome da música (opcional)") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                }
                             }
 
                             Row(
-                                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 10.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Button(
                                     onClick = {
                                         val trimmed = urlInput.trim()
                                         if (trimmed.isNotBlank()) {
-                                            viewModel.startDownload(trimmed, titleInput.ifBlank { null })
-                                            urlInput = ""
-                                            titleInput = ""
+                                            // Check if user entered an Internet Archive link or identifier
+                                            val archiveId = archiveViewModel.extractArchiveIdentifier(trimmed)
+                                            val isDirectAudioUrl = trimmed.endsWith(".mp3", ignoreCase = true) ||
+                                                    trimmed.endsWith(".flac", ignoreCase = true) ||
+                                                    trimmed.endsWith(".wav", ignoreCase = true) ||
+                                                    trimmed.endsWith(".ogg", ignoreCase = true) ||
+                                                    trimmed.endsWith(".m4a", ignoreCase = true)
+
+                                            if (archiveId != null && !isDirectAudioUrl) {
+                                                // It is an Archive item or details URL! Resolve via metadata:
+                                                selectedTab = 2 // Switch to Archive search/details tab
+                                                archiveViewModel.getMetadata(archiveId)
+                                                urlInput = ""
+                                                titleInput = ""
+                                            } else {
+                                                viewModel.startDownload(
+                                                    url = trimmed,
+                                                    title = titleInput.ifBlank { null }
+                                                )
+                                                urlInput = ""
+                                                titleInput = ""
+                                            }
                                         }
                                     },
                                     enabled = urlInput.isNotBlank(),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Text("Baixar Link")
+                                    Text("Baixar")
                                 }
                                 IconButton(onClick = { showAdvancedInput = !showAdvancedInput }) {
-                                    Icon(if (showAdvancedInput) Icons.Default.ExpandLess else Icons.Default.Tune, contentDescription = null)
+                                    Icon(
+                                        if (showAdvancedInput) Icons.Default.ExpandLess else Icons.Default.Tune,
+                                        contentDescription = "Personalizar"
+                                    )
                                 }
                                 IconButton(onClick = { launcher.launch(arrayOf("audio/*")) }) {
-                                    Icon(Icons.Default.UploadFile, contentDescription = "Importar local")
+                                    Icon(
+                                        Icons.Default.UploadFile,
+                                        contentDescription = "Importar arquivos do celular"
+                                    )
                                 }
                             }
                         }
                     }
 
+                    // Bulk clean failed downloads button if any
+                    if (failedDownloads.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${failedDownloads.size} download(s) com erro",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            TextButton(
+                                onClick = {
+                                    failedDownloads.forEach { viewModel.cancelDownload(it.id) }
+                                }
+                            ) {
+                                Text("Limpar Erros", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+
                     if (activeDownloads.isEmpty()) {
-                        Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            Text("Nenhum download ativo", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "Nenhum download ativo no momento.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
                         }
                     } else {
                         LazyColumn(
                             modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 16.dp)
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
                         ) {
                             items(activeDownloads, key = { it.id }) { item ->
                                 ActiveDownloadCard(
@@ -235,37 +359,55 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                 }
             }
             2 -> {
-                // Internet Archive Search
-                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                // Internet Archive Search & Metadata Tab
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
                     OutlinedTextField(
                         value = searchIAInput,
                         onValueChange = { searchIAInput = it },
-                        placeholder = { Text("Buscar no Internet Archive...") },
+                        placeholder = { Text("Pesquisar músicas no Internet Archive...") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         trailingIcon = {
                             IconButton(onClick = { archiveViewModel.search(searchIAInput) }) {
-                                Icon(Icons.Default.Search, contentDescription = "Buscar")
+                                Icon(Icons.Default.Search, contentDescription = "Pesquisar")
                             }
                         },
                         singleLine = true
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     Box(modifier = Modifier.weight(1f)) {
                         when (archiveState) {
                             is ArchiveUiState.Loading -> {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator()
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                                 }
                             }
                             is ArchiveUiState.SearchSuccess -> {
                                 val docs = (archiveState as ArchiveUiState.SearchSuccess).docs
                                 if (docs.isEmpty()) {
-                                    Text("Nenhum resultado encontrado.", modifier = Modifier.align(Alignment.Center))
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            "Nenhum arquivo de áudio encontrado para essa pesquisa.",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 } else {
-                                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    LazyColumn(
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        contentPadding = PaddingValues(bottom = 120.dp)
+                                    ) {
                                         items(docs) { doc ->
                                             ArchiveDocItem(
                                                 doc = doc,
@@ -278,15 +420,35 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                             is ArchiveUiState.MetadataSuccess -> {
                                 val state = archiveState as ArchiveUiState.MetadataSuccess
                                 MetadataDialog(
+                                    identifier = state.identifier,
                                     metadata = state.metadata,
                                     files = state.files,
                                     isAuthorized = archiveViewModel.isLicenseAuthorized(state.metadata.licenseUrl),
                                     onDownload = { file ->
-                                        val url = "https://archive.org/download/${state.metadata.identifier}/${file.name}"
+                                        val url = archiveViewModel.buildDownloadUrl(state.identifier, file.name)
+                                        val bestTitle = file.title?.takeIf { it.isNotBlank() }
+                                            ?: state.metadata.title?.takeIf { it.isNotBlank() }
+                                            ?: file.name.substringBeforeLast(".")
+                                        val bestArtist = file.artist?.takeIf { it.isNotBlank() }
+                                            ?: file.creator?.takeIf { it.isNotBlank() }
+                                            ?: state.metadata.creator?.takeIf { it.isNotBlank() }
+                                            ?: "Internet Archive"
+                                        val bestAlbum = file.album?.takeIf { it.isNotBlank() }
+                                            ?: state.metadata.album?.takeIf { it.isNotBlank() }
+                                            ?: "Internet Archive"
+
+                                        val expectedSize = file.size?.toLongOrNull()
+                                        val expectedDuration = file.length?.toDoubleOrNull()?.let { (it * 1000).toLong() }
+
                                         viewModel.startDownload(
                                             url = url,
-                                            title = state.metadata.title ?: file.name,
-                                            artist = state.metadata.creator ?: "Internet Archive"
+                                            title = bestTitle,
+                                            artist = bestArtist,
+                                            album = bestAlbum,
+                                            expectedSize = expectedSize,
+                                            expectedMd5 = file.md5,
+                                            expectedSha1 = file.sha1,
+                                            expectedDuration = expectedDuration
                                         )
                                         selectedTab = 1
                                         archiveViewModel.resetState()
@@ -295,7 +457,25 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                                 )
                             }
                             is ArchiveUiState.Error -> {
-                                Text("Erro: ${(archiveState as ArchiveUiState.Error).message}", color = MaterialTheme.colorScheme.error)
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Icon(
+                                            imageVector = Icons.Default.Warning,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = (archiveState as ArchiveUiState.Error).message,
+                                            color = MaterialTheme.colorScheme.error,
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+                                }
                             }
                             else -> {
                                 Column(
@@ -303,10 +483,23 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.Center
                                 ) {
-                                    Icon(imageVector = Icons.Default.HistoryEdu, contentDescription = null, size = 48.dp, tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text("Acervo Público Global", style = MaterialTheme.typography.titleMedium)
-                                    Text("Pesquise por áudios de domínio público e licenciados.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Icon(
+                                        imageVector = Icons.Default.HistoryEdu,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(54.dp),
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = "Acervo Global Internet Archive",
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Pesquise por títulos, compositores ou insira o identificador de áudios autorizados.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
                         }
@@ -320,23 +513,50 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
 @Composable
 fun ArchiveDocItem(doc: ArchiveDoc, onClick: () -> Unit) {
     Surface(
-        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     ) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.AudioFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.AudioFile,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp)
+            )
             Spacer(modifier = Modifier.width(12.dp))
-            Column {
-                Text(text = doc.title ?: "Sem título", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(text = doc.creator ?: "Autor desconhecido", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = doc.title?.takeIf { it.isNotBlank() } ?: doc.identifier,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = doc.creator?.takeIf { it.isNotBlank() } ?: "Criador não especificado",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
 
 @Composable
 fun MetadataDialog(
+    identifier: String,
     metadata: ArchiveMetadata,
     files: List<ArchiveFile>,
     isAuthorized: Boolean,
@@ -345,48 +565,93 @@ fun MetadataDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(metadata.title ?: "Detalhes do Item") },
+        title = {
+            Text(
+                metadata.title?.takeIf { it.isNotBlank() } ?: "Item: $identifier",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
         text = {
             Column {
-                Text("Autor: ${metadata.creator ?: "Desconhecido"}", style = MaterialTheme.typography.bodySmall)
-                Text("Licença: ${if (isAuthorized) "Autorizada (Domínio Público / CC)" else "Restrita ou Desconhecida"}", 
+                Text(
+                    text = "Artista: ${metadata.creator?.takeIf { it.isNotBlank() } ?: "Desconhecido"}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                if (!metadata.album.isNullOrBlank()) {
+                    Text(
+                        text = "Álbum: ${metadata.album}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Text(
+                    text = "Licença: ${if (isAuthorized) "Autorizada (Domínio Público / Aberta)" else "Restrita ou Desconhecida"}",
                     color = if (isAuthorized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall
                 )
-                
+
                 Spacer(modifier = Modifier.height(12.dp))
-                
+
                 if (files.isEmpty()) {
-                    Text("Nenhum arquivo de áudio compatível encontrado.")
+                    Text(
+                        text = "Nenhum arquivo de áudio compatível encontrado neste item.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
                 } else {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Arquivos disponíveis:", style = MaterialTheme.typography.labelLarge)
+                        Text("Arquivos de áudio disponíveis:", style = MaterialTheme.typography.labelLarge)
                         if (files.size > 1 && isAuthorized) {
                             TextButton(onClick = { files.forEach { onDownload(it) } }) {
                                 Text("Baixar Tudo", style = MaterialTheme.typography.labelMedium)
                             }
                         }
                     }
-                    LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                    LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
                         items(files) { file ->
+                            val title = file.title?.takeIf { it.isNotBlank() } ?: file.name
+                            val sizeMb = file.size?.toLongOrNull()?.let { "%.1f MB".format(it / 1024.0 / 1024.0) } ?: ""
+                            val lengthSec = file.length?.toDoubleOrNull()?.let {
+                                val mins = (it / 60).toInt()
+                                val secs = (it % 60).toInt()
+                                "%d:%02d".format(mins, secs)
+                            } ?: ""
+                            val details = listOfNotNull(file.format, sizeMb.ifBlank { null }, lengthSec.ifBlank { null }).joinToString(" • ")
+
                             Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(file.name, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text("${file.format} • ${file.size?.toLongOrNull()?.let { it / 1024 / 1024 } ?: "?"} MB", style = MaterialTheme.typography.labelSmall)
+                                    Text(
+                                        title,
+                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        details,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                                 IconButton(
                                     onClick = { onDownload(file) },
                                     enabled = isAuthorized
                                 ) {
-                                    Icon(Icons.Default.Download, contentDescription = "Baixar", tint = if (isAuthorized) MaterialTheme.colorScheme.primary else Color.Gray)
+                                    Icon(
+                                        Icons.Default.Download,
+                                        contentDescription = "Baixar",
+                                        tint = if (isAuthorized) MaterialTheme.colorScheme.primary else Color.Gray
+                                    )
                                 }
                             }
                         }
@@ -433,9 +698,11 @@ fun ActiveDownloadCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${item.speedText} • $percentage%",
+                        text = "${item.artist} • ${item.speedText} ($percentage%)",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
@@ -451,7 +718,11 @@ fun ActiveDownloadCard(
                     }
 
                     IconButton(onClick = onCancel) {
-                        Icon(Icons.Default.Close, contentDescription = "Cancelar", tint = MaterialTheme.colorScheme.error)
+                        Icon(
+                            if (item.status == DownloadStatus.FAILED) Icons.Default.Delete else Icons.Default.Close,
+                            contentDescription = "Remover",
+                            tint = MaterialTheme.colorScheme.error
+                        )
                     }
                 }
             }
@@ -464,23 +735,27 @@ fun ActiveDownloadCard(
                     .fillMaxWidth()
                     .height(6.dp)
                     .clip(RoundedCornerShape(3.dp)),
-                color = MaterialTheme.colorScheme.primary,
+                color = if (item.status == DownloadStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.surface
             )
 
-            if (item.errorMessage != null) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = item.errorMessage,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error
-                )
+            if (!item.errorMessage.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Error,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = item.errorMessage,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             }
         }
     }
-}
-
-@Composable
-private fun Icon(imageVector: androidx.compose.ui.graphics.vector.ImageVector, contentDescription: String?, size: androidx.compose.ui.unit.Dp, tint: Color) {
-    androidx.compose.material3.Icon(imageVector, contentDescription, modifier = Modifier.size(size), tint = tint)
 }

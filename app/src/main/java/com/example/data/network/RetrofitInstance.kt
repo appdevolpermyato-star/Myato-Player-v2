@@ -10,15 +10,18 @@ import java.util.concurrent.TimeUnit
 
 object RetrofitInstance {
     private val moshi = Moshi.Builder()
+        .add(FlexibleStringAdapter())
         .add(KotlinJsonAdapterFactory())
         .build()
 
     private val logging = HttpLoggingInterceptor().apply {
-        level = HttpLoggingInterceptor.Level.BODY
+        level = HttpLoggingInterceptor.Level.BASIC
     }
 
     private val client = OkHttpClient.Builder()
         .addInterceptor(logging)
+        .followRedirects(true)
+        .followSslRedirects(true)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
