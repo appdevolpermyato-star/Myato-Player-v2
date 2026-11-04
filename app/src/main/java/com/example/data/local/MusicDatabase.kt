@@ -4,10 +4,15 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.example.data.model.DownloadItem
 import com.example.data.model.Playlist
 import com.example.data.model.Song
 
-@Database(entities = [Song::class, Playlist::class, PlaylistSongCrossRef::class], version = 1, exportSchema = false)
+@Database(
+    entities = [Song::class, Playlist::class, PlaylistSongCrossRef::class, DownloadItem::class],
+    version = 2,
+    exportSchema = false
+)
 abstract class MusicDatabase : RoomDatabase() {
     abstract fun musicDao(): MusicDao
 
@@ -21,7 +26,9 @@ abstract class MusicDatabase : RoomDatabase() {
                     context.applicationContext,
                     MusicDatabase::class.java,
                     "music_database"
-                ).build()
+                )
+                    .fallbackToDestructiveMigration()
+                    .build()
                 INSTANCE = instance
                 instance
             }

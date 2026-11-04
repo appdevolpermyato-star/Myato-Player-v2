@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,6 +18,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -26,6 +28,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import coil.compose.AsyncImage
+import com.example.R
 import com.example.ui.auth.AuthUiState
 import com.example.ui.auth.AuthViewModel
 import com.example.ui.music.MusicViewModel
@@ -34,10 +37,11 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 
 sealed class Screen(val route: String, val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    data object Library : Screen("library", "Músicas", Icons.Default.MusicNote)
-    data object Playlists : Screen("playlists", "Playlists", Icons.Default.PlaylistPlay)
-    data object Favorites : Screen("favorites", "Favoritos", Icons.Default.Favorite)
-    data object Downloads : Screen("downloads", "Importados", Icons.Default.Download)
+    data object Home : Screen("home", "Início", Icons.Default.Home)
+    data object Library : Screen("library", "Biblioteca", Icons.Default.LibraryMusic)
+    data object Downloads : Screen("downloads", "Downloads", Icons.Default.Download)
+    data object Playlists : Screen("playlists", "Playlists", Icons.Default.QueueMusic)
+    data object Settings : Screen("settings", "Ajustes", Icons.Default.Settings)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,7 +53,7 @@ fun MainScreen(
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route
+    val currentRoute = navBackStackEntry?.destination?.route ?: Screen.Home.route
 
     var showPlayer by remember { mutableStateOf(false) }
     var showEqualizer by remember { mutableStateOf(false) }
@@ -69,6 +73,14 @@ fun MainScreen(
                 TopAppBar(
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            Image(
+                                painter = painterResource(id = R.drawable.myato_logo),
+                                contentDescription = "Logo",
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = "MYATO",
                                 style = MaterialTheme.typography.titleLarge.copy(
@@ -138,7 +150,13 @@ fun MainScreen(
                         contentColor = MaterialTheme.colorScheme.onSurface,
                         tonalElevation = 6.dp
                     ) {
-                        val items = listOf(Screen.Library, Screen.Playlists, Screen.Favorites, Screen.Downloads)
+                        val items = listOf(
+                            Screen.Home,
+                            Screen.Library,
+                            Screen.Downloads,
+                            Screen.Playlists,
+                            Screen.Settings
+                        )
                         items.forEach { screen ->
                             val isSelected = currentRoute == screen.route
                             NavigationBarItem(
@@ -152,6 +170,7 @@ fun MainScreen(
                                 label = {
                                     Text(
                                         screen.title,
+                                        style = MaterialTheme.typography.labelSmall,
                                         color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 },
@@ -172,23 +191,35 @@ fun MainScreen(
         ) { innerPadding ->
             NavHost(
                 navController = navController,
-                startDestination = Screen.Library.route,
+                startDestination = Screen.Home.route,
                 modifier = Modifier.padding(innerPadding)
             ) {
+                composable(Screen.Home.route) {
+                    HomeScreen(
+                        viewModel = musicViewModel,
+                        onNavigateToLibrary = { navController.navigate(Screen.Library.route) },
+                        onNavigateToDownloads = { navController.navigate(Screen.Downloads.route) },
+                        onNavigateToPlaylists = { navController.navigate(Screen.Playlists.route) },
+                        onOpenEqualizer = { showEqualizer = true }
+                    )
+                }
                 composable(Screen.Library.route) {
                     LibraryScreen(
                         viewModel = musicViewModel,
                         onRequestPermissions = onRequestPermissions
                     )
                 }
+                composable(Screen.Downloads.route) {
+                    DownloadsScreen(viewModel = musicViewModel)
+                }
                 composable(Screen.Playlists.route) {
                     PlaylistsScreen(viewModel = musicViewModel)
                 }
-                composable(Screen.Favorites.route) {
-                    FavoritesScreen(viewModel = musicViewModel)
-                }
-                composable(Screen.Downloads.route) {
-                    DownloadsScreen(viewModel = musicViewModel)
+                composable(Screen.Settings.route) {
+                    SettingsScreen(
+                        viewModel = musicViewModel,
+                        onOpenEqualizer = { showEqualizer = true }
+                    )
                 }
             }
         }

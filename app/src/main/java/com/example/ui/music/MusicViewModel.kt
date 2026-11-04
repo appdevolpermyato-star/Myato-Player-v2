@@ -8,13 +8,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.example.data.model.DownloadItem
 import com.example.data.model.Playlist
 import com.example.data.model.Song
 import com.example.data.repository.MusicRepository
 import com.example.service.PlaybackService
+import com.example.ui.util.SleepTimerManager
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
@@ -35,7 +38,7 @@ enum class SortOption {
 }
 
 class MusicViewModel(
-    private val repository: MusicRepository
+    val repository: MusicRepository
 ) : ViewModel() {
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
@@ -48,6 +51,18 @@ class MusicViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val favoriteSongs: StateFlow<List<Song>> = repository.favoriteSongs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val recentlyPlayedSongs: StateFlow<List<Song>> = repository.recentlyPlayedSongs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val mostPlayedSongs: StateFlow<List<Song>> = repository.mostPlayedSongs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val downloadedSongs: StateFlow<List<Song>> = repository.downloadedSongs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allDownloads: StateFlow<List<DownloadItem>> = repository.allDownloads
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val playlists: StateFlow<List<Playlist>> = repository.allPlaylists
@@ -66,11 +81,20 @@ class MusicViewModel(
     private val _repeatMode = MutableStateFlow(Player.REPEAT_MODE_OFF)
     val repeatMode: StateFlow<Int> = _repeatMode.asStateFlow()
 
+    private val _playbackSpeed = MutableStateFlow(1.0f)
+    val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
+
     val searchQuery = MutableStateFlow("")
     val sortOption = MutableStateFlow(SortOption.TITLE)
 
     val isScanning = MutableStateFlow(false)
     val scanMessage = MutableStateFlow<String?>(null)
+
+    // Sleep Timer
+    val sleepTimerManager = SleepTimerManager {
+        controller?.pause()
+    }
+    val sleepTimerRemaining: StateFlow<Long?> = sleepTimerManager.remainingSeconds
 
     // Equalizer state from AudioEffectManager singleton
     val equalizerState: StateFlow<EqualizerState> = AudioEffectManager.instance.state
@@ -102,10 +126,16 @@ class MusicViewModel(
         val player = controller ?: return
         _isShuffleEnabled.value = player.shuffleModeEnabled
         _repeatMode.value = player.repeatMode
+        _playbackSpeed.value = player.playbackParameters.speed
 
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 updatePlaybackState()
+                mediaItem?.mediaId?.let { songId ->
+                    viewModelScope.launch {
+                        repository.recordSongPlayed(songId)
+                    }
+                }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -120,8 +150,8 @@ class MusicViewModel(
                 _repeatMode.value = repeatMode
             }
 
-            override fun onPlaybackStateChanged(state: Int) {
-                // Playback state updates
+            override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+                _playbackSpeed.value = playbackParameters.speed
             }
         })
         updatePlaybackState()
@@ -161,6 +191,9 @@ class MusicViewModel(
             listOf(song) + allSongs.value.filter { it.id != song.id }
         }
         playQueue(queue, queue.indexOfFirst { it.id == song.id }.coerceAtLeast(0))
+        viewModelScope.launch {
+            repository.recordSongPlayed(song.id)
+        }
     }
 
     fun playQueue(songs: List<Song>, startIndex: Int = 0) {
@@ -234,6 +267,12 @@ class MusicViewModel(
         _repeatMode.value = nextMode
     }
 
+    fun setPlaybackSpeed(speed: Float) {
+        val player = controller ?: return
+        player.playbackParameters = PlaybackParameters(speed)
+        _playbackSpeed.value = speed
+    }
+
     fun toggleFavorite(song: Song) {
         viewModelScope.launch {
             repository.toggleFavorite(song.id, !song.isFavorite)
@@ -264,6 +303,27 @@ class MusicViewModel(
         }
     }
 
+    // Downloader controls
+    fun startDownload(url: String, title: String? = null, artist: String? = null) {
+        repository.downloadEngine.startDownload(url, title, artist)
+    }
+
+    fun pauseDownload(id: String) {
+        repository.downloadEngine.pauseDownload(id)
+    }
+
+    fun resumeDownload(id: String) {
+        repository.downloadEngine.resumeDownload(id)
+    }
+
+    fun cancelDownload(id: String) {
+        repository.downloadEngine.cancelDownload(id)
+    }
+
+    fun deleteDownloadedFile(id: String) {
+        repository.downloadEngine.deleteDownloadedFile(id)
+    }
+
     fun createPlaylist(name: String, description: String? = null) {
         viewModelScope.launch {
             repository.createPlaylist(name, description)
@@ -273,6 +333,12 @@ class MusicViewModel(
     fun addSongToPlaylist(playlistId: String, songId: String) {
         viewModelScope.launch {
             repository.addSongToPlaylist(playlistId, songId)
+        }
+    }
+
+    fun addSongsToPlaylist(playlistId: String, songIds: List<String>) {
+        viewModelScope.launch {
+            repository.addSongsToPlaylist(playlistId, songIds)
         }
     }
 
@@ -294,9 +360,23 @@ class MusicViewModel(
         }
     }
 
+    fun deleteSongs(songs: List<Song>) {
+        viewModelScope.launch {
+            repository.deleteSongs(songs)
+        }
+    }
+
     fun getSongsInPlaylist(playlistId: String): Flow<List<Song>> {
         return repository.getSongsInPlaylist(playlistId)
     }
+
+    fun clearCache() {
+        repository.clearCache()
+    }
+
+    // Sleep timer helpers
+    fun setSleepTimer(minutes: Int) = sleepTimerManager.setTimer(minutes)
+    fun cancelSleepTimer() = sleepTimerManager.cancelTimer()
 
     // Equalizer controls forwarding
     fun setEqualizerEnabled(enabled: Boolean) = AudioEffectManager.instance.setEnabled(enabled)
@@ -307,6 +387,7 @@ class MusicViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        sleepTimerManager.cancelTimer()
         controllerFuture?.let {
             MediaController.releaseFuture(it)
         }

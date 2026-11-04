@@ -1,6 +1,6 @@
 {
-  "name": "Myato Player",
-  "description": "Professional offline music player with local library management, equalizer, and smart playlists.",
+  "name": "MyatoPlayer",
+  "description": "Professional music player and downloader with advanced equalizer, smart library, and modern dark UI.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

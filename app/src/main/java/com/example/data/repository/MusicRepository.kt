@@ -8,13 +8,16 @@ import android.net.Uri
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
+import com.example.data.download.DownloadEngine
 import com.example.data.local.MusicDao
 import com.example.data.local.PlaylistSongCrossRef
+import com.example.data.model.DownloadItem
 import com.example.data.model.Playlist
 import com.example.data.model.Song
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.UUID
 
 class MusicRepository(
@@ -24,6 +27,16 @@ class MusicRepository(
     val allSongs: Flow<List<Song>> = musicDao.getAllSongs()
     val favoriteSongs: Flow<List<Song>> = musicDao.getFavoriteSongs()
     val allPlaylists: Flow<List<Playlist>> = musicDao.getAllPlaylists()
+    val recentlyPlayedSongs: Flow<List<Song>> = musicDao.getRecentlyPlayedSongs(15)
+    val mostPlayedSongs: Flow<List<Song>> = musicDao.getMostPlayedSongs(15)
+    val downloadedSongs: Flow<List<Song>> = musicDao.getDownloadedSongs()
+    val allDownloads: Flow<List<DownloadItem>> = musicDao.getAllDownloads()
+
+    val downloadEngine = DownloadEngine(context, musicDao)
+
+    suspend fun recordSongPlayed(songId: String) {
+        musicDao.recordSongPlayed(songId, System.currentTimeMillis())
+    }
 
     suspend fun scanLocalSongs(): Int = withContext(Dispatchers.IO) {
         val songs = mutableListOf<Song>()
@@ -134,7 +147,8 @@ class MusicRepository(
                     duration = duration,
                     mediaUri = uri.toString(),
                     coverUri = null,
-                    isFavorite = false
+                    isFavorite = false,
+                    isDownloaded = true
                 )
                 musicDao.insertSong(song)
                 imported.add(song)
@@ -146,7 +160,7 @@ class MusicRepository(
     }
 
     suspend fun seedSampleSongsIfEmpty() = withContext(Dispatchers.IO) {
-        // High quality royalty-free demo tracks from SoundHelix to ensure immediate playable experience
+        // High quality royalty-free tracks to ensure immediate playable offline/online experience
         val samples = listOf(
             Song(
                 id = "sample_1",
@@ -210,6 +224,10 @@ class MusicRepository(
         musicDao.deleteSong(song)
     }
 
+    suspend fun deleteSongs(songs: List<Song>) {
+        musicDao.deleteSongs(songs)
+    }
+
     suspend fun createPlaylist(name: String, description: String? = null): String {
         val id = UUID.randomUUID().toString()
         val playlist = Playlist(
@@ -246,5 +264,11 @@ class MusicRepository(
 
     suspend fun removeSongFromPlaylist(playlistId: String, songId: String) {
         musicDao.removeSongFromPlaylist(playlistId, songId)
+    }
+
+    fun clearCache() {
+        try {
+            context.cacheDir.deleteRecursively()
+        } catch (_: Exception) {}
     }
 }
