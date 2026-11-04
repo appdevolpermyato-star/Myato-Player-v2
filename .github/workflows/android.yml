@@ -28,43 +28,66 @@ jobs:
       - name: Grant Execute Permission to Gradle
         run: chmod +x gradlew
 
-      - name: Decode Google Services JSON
-        run: echo "${{ secrets.GOOGLE_SERVICES_JSON }}" > app/google-services.json
-
-      - name: Decode Debug Keystore
-        run: echo "${{ secrets.DEBUG_KEYSTORE_BASE64 || vars.DEBUG_KEYSTORE_BASE64 }}" | base64 -d > debug.keystore
-        continue-on-error: true
-
-      - name: Create Dummy Debug Keystore if missing
+      - name: Configure Firebase
         run: |
-          if [ ! -f debug.keystore ]; then
-            # If the secret isn't set, try to use the one from the repo if it exists (base64)
-            if [ -f debug.keystore.base64 ]; then
-              cat debug.keystore.base64 | base64 -d > debug.keystore
+          if [ -n "${{ secrets.GOOGLE_SERVICES_JSON }}" ]; then
+            echo "${{ secrets.GOOGLE_SERVICES_JSON }}" > app/google-services.json
+            echo "Firebase configured from secret."
+          else
+            echo "GOOGLE_SERVICES_JSON secret is missing! Using placeholder to allow compilation (AI features may not work)."
+            # Create a minimal valid JSON placeholder if it doesn't exist
+            if [ ! -f app/google-services.json ]; then
+              echo '{"project_info":{"project_number":"0","project_id":"placeholder","storage_bucket":"placeholder.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:0:android:0","android_client_info":{"package_name":"com.aistudio.myatoplayer.vqxmrw"}},"api_key":[{"current_key":"placeholder"}],"services":{}}],"configuration_version":"1"}' > app/google-services.json
             fi
           fi
+
+      - name: Decode Debug Keystore
+        run: |
+          if [ -n "${{ secrets.DEBUG_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.DEBUG_KEYSTORE_BASE64 }}" | base64 -d > debug.keystore
+            echo "Debug keystore decoded from secret."
+          elif [ -n "${{ vars.DEBUG_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ vars.DEBUG_KEYSTORE_BASE64 }}" | base64 -d > debug.keystore
+            echo "Debug keystore decoded from variable."
+          elif [ -f debug.keystore.base64 ]; then
+            cat debug.keystore.base64 | base64 -d > debug.keystore
+            echo "Debug keystore decoded from repository file."
+          else
+            echo "Warning: No debug keystore source found. Generating a new one for debug builds."
+            keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --stacktrace
 
       - name: Build Release APK
         run: ./gradlew assembleRelease --stacktrace
 
-      - name: Prepare APK for Artifacts
+      - name: Prepare APKs for Artifacts
+        if: always()
         run: |
           mkdir -p outputs
-          # Find the generated release APK and copy it to a standard location
-          find app/build/outputs/apk/release -name "*.apk" -exec cp {} outputs/MyatoPlayer-release.apk \;
+          # Find and copy all generated APKs
+          find app/build/outputs/apk -name "*.apk" -exec cp {} outputs/ \;
+          # Rename for clarity if they exist
+          [ -f outputs/app-debug.apk ] && mv outputs/app-debug.apk outputs/MyatoPlayer-debug.apk || true
+          [ -f outputs/app-release.apk ] && mv outputs/app-release.apk outputs/MyatoPlayer-release.apk || true
 
-      - name: Upload APK Artifact
+      - name: Upload APK Artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: MyatoPlayer-Release-APK
-          path: outputs/MyatoPlayer-release.apk
+          name: MyatoPlayer-APKs
+          path: outputs/*.apk
           retention-days: 7
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: outputs/MyatoPlayer-release.apk
+          files: |
+            outputs/MyatoPlayer-release.apk
+            outputs/MyatoPlayer-debug.apk
           name: MyatoPlayer ${{ github.ref_name }}
           body: |
             Nova versão oficial do MyatoPlayer disponível!
