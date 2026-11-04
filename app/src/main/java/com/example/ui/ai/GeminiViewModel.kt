@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.Song
 import com.google.firebase.Firebase
-import com.google.firebase.ai.ai
+import com.google.firebase.vertexai.vertexAI
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,7 +23,7 @@ sealed interface AiUiState {
 
 class GeminiViewModel : ViewModel() {
     private val model by lazy {
-        Firebase.ai.generativeModel("gemini-3.8-flash")
+        Firebase.vertexAI.generativeModel("gemini-3.8-flash")
     }
 
     private val _uiState = MutableStateFlow<AiUiState>(AiUiState.Idle)

@@ -59,6 +59,16 @@ Para instalar:
 
 ---
 
+### Configuração necessária no GitHub:
+
+Para que a compilação automática funcione, você **precisa** configurar o arquivo do Firebase como um "Secret" no seu repositório:
+
+1. Acesse seu repositório no GitHub.
+2. Vá em **Settings** > **Secrets and variables** > **Actions**.
+3. Clique em **New repository secret**.
+4. Nome: `GOOGLE_SERVICES_JSON`
+5. Valor: Cole todo o conteúdo do seu arquivo `app/google-services.json`.
+
 ---
 
 ## 🛠️ Arquitetura e Tecnologias
