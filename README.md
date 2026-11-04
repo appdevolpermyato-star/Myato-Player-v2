@@ -59,6 +59,8 @@ Para instalar:
 
 ---
 
+---
+
 ## 🛠️ Arquitetura e Tecnologias
 
 - **Linguagem**: Kotlin 100%
@@ -69,3 +71,21 @@ Para instalar:
 - **Arquitetura**: MVVM (Model-View-ViewModel) + StateFlow reativo
 - **IA**: Google Gemini via Firebase AI Logic (recomendações inteligentes)
 - **Armazenamento**: 100% offline-first sem login compulsório
+
+---
+
+## 🚀 Exportação para GitHub e CI/CD
+
+Este projeto está configurado para compilação automática via **GitHub Actions**.
+
+### Como gerar um novo APK via GitHub:
+
+1. **Push para o GitHub**: Use o botão **Push to GitHub** no AI Studio para exportar o código.
+2. **Geração Automática**: Cada `push` na branch `main` ou `master` iniciará uma compilação automática. Você pode ver o progresso na aba **Actions** do seu repositório.
+3. **Criar uma Release**: Para gerar um APK disponível na seção **Releases**:
+   - Vá em **Releases** no seu GitHub.
+   - Crie uma nova tag (ex: `v1.0.0`).
+   - O GitHub Actions irá compilar o projeto e anexar o arquivo `MyatoPlayer-v1.0.0.apk` automaticamente na release.
+
+O arquivo `gradlew` (Gradle Wrapper) já está incluído para garantir que o ambiente de nuvem do GitHub consiga compilar o projeto sem configurações adicionais.
+

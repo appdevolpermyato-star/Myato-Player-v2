@@ -5,12 +5,16 @@ on:
     branches: [ main, master ]
     tags:
       - 'v*'
+  pull_request:
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   build:
     name: Build Android APK
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Code
@@ -24,23 +28,27 @@ jobs:
           cache: 'gradle'
 
       - name: Grant Execute Permission to Gradle
-        run: gradle --version
+        run: chmod +x gradlew
 
       - name: Build Debug APK
-        run: gradle assembleDebug
+        run: ./gradlew assembleDebug
+
+      - name: Rename APK for Release
+        run: mv app/build/outputs/apk/debug/app-debug.apk MyatoPlayer-v1.0.0.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: MyatoPlayer-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: MyatoPlayer-v1.0.0.apk
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/debug/app-debug.apk
+          files: MyatoPlayer-v1.0.0.apk
           name: MyatoPlayer ${{ github.ref_name }}
           draft: false
           prerelease: false
           generate_release_notes: true
+          token: ${{ secrets.GITHUB_TOKEN }}
