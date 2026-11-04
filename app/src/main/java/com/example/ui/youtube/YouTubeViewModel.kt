@@ -11,6 +11,7 @@ import com.example.data.local.PlaylistSongCrossRef
 import com.example.data.model.Playlist
 import com.example.data.model.Song
 import com.example.data.network.ArchiveDoc
+import com.example.data.network.JamendoTrack
 import com.example.data.network.RetrofitInstance
 import com.example.data.network.YouTubeDurationHelper
 import com.example.ui.util.LinkClassifier
@@ -30,7 +31,7 @@ data class YouTubeTrackInfo(
     val durationMs: Long,
     val thumbnailUrl: String?,
     val position: Int? = null,
-    val rawUrl: String
+    val rawInput: String
 )
 
 data class YouTubePlaylistInfo(
@@ -39,13 +40,14 @@ data class YouTubePlaylistInfo(
     val channelTitle: String,
     val totalItems: Int,
     val thumbnailUrl: String?,
-    val rawUrl: String
+    val rawInput: String
 )
 
 data class YouTubePlaylistItemState(
     val track: YouTubeTrackInfo,
     val isSelected: Boolean = true,
     val authorizedMatch: ArchiveDoc? = null,
+    val jamendoMatch: JamendoTrack? = null,
     val linkedLocalUri: Uri? = null,
     val statusText: String = "Aguardando fonte autorizada",
     val isMatched: Boolean = false,
@@ -58,7 +60,9 @@ sealed interface YouTubeUiState {
     data class VideoLoaded(
         val track: YouTubeTrackInfo,
         val archiveMatches: List<ArchiveDoc> = emptyList(),
-        val isSearchingArchive: Boolean = false
+        val jamendoMatches: List<JamendoTrack> = emptyList(),
+        val isSearchingArchive: Boolean = false,
+        val isSearchingJamendo: Boolean = false
     ) : YouTubeUiState
     data class PlaylistLoaded(
         val playlist: YouTubePlaylistInfo,
@@ -81,6 +85,7 @@ class YouTubeViewModel : ViewModel() {
     private val youtubeApi = RetrofitInstance.youtubeApi
     private val youtubeOEmbedApi = RetrofitInstance.youtubeOEmbedApi
     private val archiveApi = RetrofitInstance.archiveApi
+    private val jamendoApi = RetrofitInstance.jamendoApi
 
     fun setCustomApiKey(key: String?) {
         _customApiKey.value = key?.trim()?.ifBlank { null }
@@ -94,6 +99,20 @@ class YouTubeViewModel : ViewModel() {
             val keyField = BuildConfig::class.java.getField("YOUTUBE_API_KEY")
             val buildConfigKey = keyField.get(null) as? String
             if (!buildConfigKey.isNullOrBlank() && buildConfigKey != "MY_YOUTUBE_API_KEY") {
+                buildConfigKey
+            } else {
+                null
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun getJamendoClientId(): String? {
+        return try {
+            val keyField = BuildConfig::class.java.getField("JAMENDO_CLIENT_ID")
+            val buildConfigKey = keyField.get(null) as? String
+            if (!buildConfigKey.isNullOrBlank() && buildConfigKey != "MY_JAMENDO_CLIENT_ID") {
                 buildConfigKey
             } else {
                 null
@@ -141,11 +160,11 @@ class YouTubeViewModel : ViewModel() {
                             artist = artist,
                             durationMs = duration,
                             thumbnailUrl = thumb,
-                            rawUrl = rawUrl
+                            rawInput = rawUrl
                         )
                         _uiState.value = YouTubeUiState.VideoLoaded(track = track)
-                        // Proactively search authorized recordings in Internet Archive
-                        searchArchiveForTrack(track)
+                        // Search in authorized sources
+                        searchAuthorizedSources(track)
                         return@launch
                     }
                 } catch (e: Exception) {
@@ -163,15 +182,80 @@ class YouTubeViewModel : ViewModel() {
                     artist = oembed.author_name ?: "YouTube",
                     durationMs = 180000L,
                     thumbnailUrl = oembed.thumbnail_url,
-                    rawUrl = rawUrl
+                    rawInput = rawUrl
                 )
                 _uiState.value = YouTubeUiState.VideoLoaded(track = track)
-                searchArchiveForTrack(track)
+                searchAuthorizedSources(track)
             } catch (e: Exception) {
                 Log.e("MyatoYouTube", "Falha na consulta do vídeo: ${e.message}", e)
                 _uiState.value = YouTubeUiState.Error(
                     "Não foi possível obter informações do vídeo '$videoId'. Verifique sua conexão e se o vídeo está público."
                 )
+            }
+        }
+    }
+
+    fun searchAuthorizedSources(track: YouTubeTrackInfo) {
+        searchArchiveForTrack(track)
+        searchJamendoForTrack(track)
+    }
+
+    fun searchJamendoForTrack(track: YouTubeTrackInfo) {
+        val current = _uiState.value
+        if (current is YouTubeUiState.VideoLoaded) {
+            _uiState.value = current.copy(isSearchingJamendo = true)
+        }
+
+        viewModelScope.launch {
+            try {
+                val clientId = getJamendoClientId()
+                if (clientId.isNullOrBlank()) {
+                    Log.w("MyatoYouTube", "Jamendo Client ID não configurado")
+                    val now = _uiState.value
+                    if (now is YouTubeUiState.VideoLoaded) {
+                        _uiState.value = now.copy(isSearchingJamendo = false)
+                    }
+                    return@launch
+                }
+
+                val cleanTitle = cleanTitleForSearch(track.title)
+                val cleanArtist = cleanArtistForSearch(track.artist)
+
+                Log.i("MyatoYouTube", "Buscando áudio autorizado no Jamendo para '${track.title}'")
+                
+                // Try searching by name and artist
+                val response = jamendoApi.searchTracks(
+                    clientId = clientId,
+                    name = cleanTitle,
+                    artist = cleanArtist,
+                    limit = 5
+                )
+                
+                var tracks = response.results.filter { it.audiodownload_allowed }
+
+                // If no exact match, try a broader search
+                if (tracks.isEmpty()) {
+                    val broadRes = jamendoApi.searchTracks(
+                        clientId = clientId,
+                        query = "$cleanTitle $cleanArtist",
+                        limit = 5
+                    )
+                    tracks = broadRes.results.filter { it.audiodownload_allowed }
+                }
+
+                val now = _uiState.value
+                if (now is YouTubeUiState.VideoLoaded) {
+                    _uiState.value = now.copy(
+                        jamendoMatches = tracks,
+                        isSearchingJamendo = false
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w("MyatoYouTube", "Falha na busca do Jamendo para ${track.title}: ${e.message}")
+                val now = _uiState.value
+                if (now is YouTubeUiState.VideoLoaded) {
+                    _uiState.value = now.copy(isSearchingJamendo = false)
+                }
             }
         }
     }
@@ -210,7 +294,7 @@ class YouTubeViewModel : ViewModel() {
                     channelTitle = pChannel,
                     totalItems = pCount,
                     thumbnailUrl = pThumb,
-                    rawUrl = rawUrl
+                    rawInput = rawUrl
                 )
 
                 // Fetch playlist items (up to 50)
@@ -233,7 +317,7 @@ class YouTubeViewModel : ViewModel() {
                         durationMs = 180000L,
                         thumbnailUrl = tThumb,
                         position = entry.snippet?.position ?: 0,
-                        rawUrl = "https://www.youtube.com/watch?v=$vid"
+                        rawInput = "https://www.youtube.com/watch?v=$vid"
                     )
 
                     YouTubePlaylistItemState(
@@ -313,25 +397,50 @@ class YouTubeViewModel : ViewModel() {
 
         viewModelScope.launch {
             val updatedItems = current.items.toMutableList()
+            val clientId = getJamendoClientId()
+            
             for (i in updatedItems.indices) {
                 val item = updatedItems[i]
-                if (item.isSelected && item.authorizedMatch == null && item.linkedLocalUri == null) {
+                if (item.isSelected && !item.isMatched && !item.isImported && item.linkedLocalUri == null) {
                     try {
                         val cleanTitle = cleanTitleForSearch(item.track.title)
-                        val query = "mediatype:audio AND ($cleanTitle)"
-                        val res = archiveApi.search(query = query, rows = 1)
-                        val match = res.response?.docs?.firstOrNull()
+                        val cleanArtist = cleanArtistForSearch(item.track.artist)
+                        
+                        // 1. Try Jamendo first (often better metadata)
+                        var jamendoMatch: JamendoTrack? = null
+                        if (!clientId.isNullOrBlank()) {
+                            val jamRes = jamendoApi.searchTracks(
+                                clientId = clientId,
+                                name = cleanTitle,
+                                artist = cleanArtist,
+                                limit = 1
+                            )
+                            jamendoMatch = jamRes.results.firstOrNull { it.audiodownload_allowed }
+                        }
 
-                        if (match != null) {
+                        if (jamendoMatch != null) {
                             updatedItems[i] = item.copy(
-                                authorizedMatch = match,
+                                jamendoMatch = jamendoMatch,
                                 isMatched = true,
-                                statusText = "Fonte autorizada encontrada no Archive"
+                                statusText = "Fonte autorizada encontrada no Jamendo"
                             )
                         } else {
-                            updatedItems[i] = item.copy(
-                                statusText = "Sem correspondência automática (vincule arquivo local)"
-                            )
+                            // 2. Try Internet Archive
+                            val query = "mediatype:audio AND ($cleanTitle)"
+                            val res = archiveApi.search(query = query, rows = 1)
+                            val archiveMatch = res.response?.docs?.firstOrNull()
+
+                            if (archiveMatch != null) {
+                                updatedItems[i] = item.copy(
+                                    authorizedMatch = archiveMatch,
+                                    isMatched = true,
+                                    statusText = "Fonte autorizada encontrada no Archive"
+                                )
+                            } else {
+                                updatedItems[i] = item.copy(
+                                    statusText = "Sem correspondência automática (vincule arquivo local)"
+                                )
+                            }
                         }
                     } catch (_: Exception) {
                         updatedItems[i] = item.copy(statusText = "Falha na busca de fonte")

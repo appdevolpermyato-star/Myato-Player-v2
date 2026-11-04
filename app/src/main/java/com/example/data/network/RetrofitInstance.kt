@@ -52,4 +52,13 @@ object RetrofitInstance {
             .build()
             .create(YouTubeOEmbedService::class.java)
     }
+
+    val jamendoApi: JamendoApiService by lazy {
+        Retrofit.Builder()
+            .baseUrl(JamendoApiService.BASE_URL)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .client(client)
+            .build()
+            .create(JamendoApiService::class.java)
+    }
 }

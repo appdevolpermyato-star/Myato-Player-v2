@@ -35,6 +35,7 @@ import com.example.data.model.Song
 import com.example.data.network.ArchiveDoc
 import com.example.data.network.ArchiveFile
 import com.example.data.network.ArchiveMetadata
+import com.example.data.network.JamendoTrack
 import com.example.ui.archive.ArchiveUiState
 import com.example.ui.archive.ArchiveViewModel
 import com.example.ui.music.MusicViewModel
@@ -676,8 +677,11 @@ fun DownloadsScreen(
         YouTubeVideoInspectorDialog(
             track = state.track,
             archiveMatches = state.archiveMatches,
+            jamendoMatches = state.jamendoMatches,
             isSearchingArchive = state.isSearchingArchive,
+            isSearchingJamendo = state.isSearchingJamendo,
             onDismiss = { youTubeViewModel.resetState() },
+            onSearchAuthorized = { youTubeViewModel.searchAuthorizedSources(state.track) },
             onLinkLocalAudio = {
                 pendingTrackForLocalAudio = state.track
                 linkAudioLauncher.launch(arrayOf("audio/*"))
@@ -686,6 +690,17 @@ fun DownloadsScreen(
                 archiveViewModel.getMetadata(doc.identifier)
                 youTubeViewModel.resetState()
                 selectedTab = 2
+            },
+            onDownloadJamendoMatch = { jamTrack ->
+                viewModel.startDownload(
+                    url = jamTrack.audio,
+                    title = jamTrack.name,
+                    artist = jamTrack.artist_name,
+                    album = jamTrack.album_name,
+                    expectedDuration = (jamTrack.duration * 1000).toLong()
+                )
+                youTubeViewModel.resetState()
+                selectedTab = 1
             }
         )
     }
@@ -704,14 +719,44 @@ fun DownloadsScreen(
             onCreateLocalPlaylist = {
                 coroutineScope.launch {
                     try {
-                        val selectedTracks = state.items.filter { it.isSelected }.map { it.track }
-                        // Create playlist in Room
+                        val selectedItems = state.items.filter { it.isSelected }
+                        
+                        // 1. Create the empty playlist first
                         val plId = youTubeViewModel.createLocalPlaylistFromYouTube(
                             musicDao = viewModel.repository.musicDao,
                             playlistInfo = state.playlist,
-                            itemsToInclude = emptyList() // Will be populated as user downloads/links
+                            itemsToInclude = emptyList()
                         )
-                        Toast.makeText(context, "Playlist '${state.playlist.title}' criada no Myato com sucesso!", Toast.LENGTH_SHORT).show()
+                        
+                        // 2. Start downloads for items that have matches
+                        var downloadCount = 0
+                        selectedItems.forEach { item ->
+                            val jamTrack = item.jamendoMatch
+                            val arcDoc = item.authorizedMatch
+                            
+                            if (jamTrack != null) {
+                                viewModel.startDownload(
+                                    url = jamTrack.audio,
+                                    title = jamTrack.name,
+                                    artist = jamTrack.artist_name,
+                                    album = jamTrack.album_name,
+                                    expectedDuration = (jamTrack.duration * 1000).toLong()
+                                )
+                                downloadCount++
+                            } else if (arcDoc != null) {
+                                // For Archive, we need metadata to get the actual file URL
+                                // This is tricky for batch, so we might just point to the search
+                                archiveViewModel.getMetadata(arcDoc.identifier)
+                            }
+                        }
+                        
+                        val msg = if (downloadCount > 0) {
+                            "Playlist criada e $downloadCount downloads iniciados!"
+                        } else {
+                            "Playlist '${state.playlist.title}' criada! Vincule arquivos locais para populá-la."
+                        }
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        youTubeViewModel.resetState()
                     } catch (e: Exception) {
                         Toast.makeText(context, "Erro ao criar playlist: ${e.message}", Toast.LENGTH_SHORT).show()
                     }
@@ -721,10 +766,21 @@ fun DownloadsScreen(
                 pendingTrackForLocalAudio = track
                 linkAudioLauncher.launch(arrayOf("audio/*"))
             },
-            onDownloadItemMatch = { track, doc ->
+            onDownloadArchiveMatch = { track, doc ->
                 archiveViewModel.getMetadata(doc.identifier)
                 youTubeViewModel.resetState()
                 selectedTab = 2
+            },
+            onDownloadJamendoMatch = { track, jamTrack ->
+                viewModel.startDownload(
+                    url = jamTrack.audio,
+                    title = jamTrack.name,
+                    artist = jamTrack.artist_name,
+                    album = jamTrack.album_name,
+                    expectedDuration = (jamTrack.duration * 1000).toLong()
+                )
+                youTubeViewModel.resetState()
+                selectedTab = 1
             },
             onDismiss = { youTubeViewModel.resetState() }
         )
@@ -787,10 +843,14 @@ fun DownloadsScreen(
 fun YouTubeVideoInspectorDialog(
     track: YouTubeTrackInfo,
     archiveMatches: List<ArchiveDoc>,
+    jamendoMatches: List<JamendoTrack>,
     isSearchingArchive: Boolean,
+    isSearchingJamendo: Boolean,
     onDismiss: () -> Unit,
+    onSearchAuthorized: () -> Unit,
     onLinkLocalAudio: () -> Unit,
-    onDownloadArchiveMatch: (ArchiveDoc) -> Unit
+    onDownloadArchiveMatch: (ArchiveDoc) -> Unit,
+    onDownloadJamendoMatch: (JamendoTrack) -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -857,108 +917,167 @@ fun YouTubeVideoInspectorDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Official Notice
-                Surface(
+                // Action Buttons
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
-                    shape = RoundedCornerShape(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.VerifiedUser,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
+                    Button(
+                        onClick = onSearchAuthorized,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 8.dp)
+                    ) {
+                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "A YouTube API fornece metadados e capas. Para reproduzir offline, selecione uma fonte de áudio autorizada:",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
+                        Text("Buscar áudio", fontSize = 12.sp)
+                    }
+                    OutlinedButton(
+                        onClick = onLinkLocalAudio,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 8.dp)
+                    ) {
+                        Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Vincular local", fontSize = 12.sp)
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                // Option 1: Internet Archive Open Recording
-                Text(
-                    text = "Opção 1: Gravações no Internet Archive",
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-
-                if (isSearchingArchive) {
+                // Results Section
+                if (isSearchingArchive || isSearchingJamendo) {
                     Row(
-                        modifier = Modifier.padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Buscando gravações livres correspondentes...", style = MaterialTheme.typography.bodySmall)
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text("Buscando fontes autorizadas...", style = MaterialTheme.typography.bodySmall)
                     }
-                } else if (archiveMatches.isEmpty()) {
-                    Text(
-                        text = "Nenhuma gravação aberta encontrada automaticamente com esse nome.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 } else {
-                    LazyColumn(modifier = Modifier.heightIn(max = 160.dp)) {
-                        items(archiveMatches) { doc ->
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 3.dp)
-                                    .clickable { onDownloadArchiveMatch(doc) },
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.surface
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = doc.title ?: doc.identifier,
-                                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            text = doc.creator ?: "Internet Archive",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Icon(
-                                        imageVector = Icons.Default.Download,
-                                        contentDescription = "Baixar",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
+                    val hasMatches = archiveMatches.isNotEmpty() || jamendoMatches.isNotEmpty()
+                    
+                    if (hasMatches) {
+                        LazyColumn(modifier = Modifier.heightIn(max = 240.dp)) {
+                            // Jamendo Results First (Higher Quality)
+                            if (jamendoMatches.isNotEmpty()) {
+                                item {
+                                    Text(
+                                        text = "Resultados Jamendo (Alta Qualidade)",
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(bottom = 6.dp)
                                     )
+                                }
+                                items(jamendoMatches) { jamTrack ->
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 3.dp)
+                                            .clickable { onDownloadJamendoMatch(jamTrack) },
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.surface,
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            if (!jamTrack.album_image.isNullOrEmpty()) {
+                                                AsyncImage(
+                                                    model = jamTrack.album_image,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(32.dp).clip(RoundedCornerShape(4.dp))
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                            }
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = jamTrack.name,
+                                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = jamTrack.artist_name,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            Icon(
+                                                imageVector = Icons.Default.Download,
+                                                contentDescription = "Baixar",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Archive Results
+                            if (archiveMatches.isNotEmpty()) {
+                                item {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Resultados Internet Archive",
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.padding(bottom = 6.dp)
+                                    )
+                                }
+                                items(archiveMatches) { doc ->
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 3.dp)
+                                            .clickable { onDownloadArchiveMatch(doc) },
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.surface
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = doc.title ?: doc.identifier,
+                                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = doc.creator ?: "Internet Archive",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            Icon(
+                                                imageVector = Icons.Default.Download,
+                                                contentDescription = "Baixar",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
+                    } else if (!isSearchingArchive && !isSearchingJamendo) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = "Nenhuma fonte de áudio autorizada encontrada automaticamente. Tente buscar manualmente ou vincular um arquivo local.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
                     }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Option 2: Link local device file
-                Text(
-                    text = "Opção 2: Vincular Arquivo do Celular",
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                OutlinedButton(
-                    onClick = onLinkLocalAudio,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Selecionar Arquivo de Áudio Local (.mp3, .flac)")
                 }
             }
         },
@@ -981,7 +1100,8 @@ fun YouTubePlaylistInspectorDialog(
     onBatchSearchArchive: () -> Unit,
     onCreateLocalPlaylist: () -> Unit,
     onLinkItemAudio: (YouTubeTrackInfo) -> Unit,
-    onDownloadItemMatch: (YouTubeTrackInfo, ArchiveDoc) -> Unit,
+    onDownloadArchiveMatch: (YouTubeTrackInfo, ArchiveDoc) -> Unit,
+    onDownloadJamendoMatch: (YouTubeTrackInfo, JamendoTrack) -> Unit,
     onDismiss: () -> Unit
 ) {
     val selectedCount = items.count { it.isSelected }
@@ -1038,11 +1158,15 @@ fun YouTubePlaylistInspectorDialog(
 
                     Row {
                         IconButton(onClick = onBatchSearchArchive, enabled = !isSearchingAll) {
-                            Icon(
-                                Icons.Default.Search,
-                                contentDescription = "Buscar no Archive",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                            if (isSearchingAll) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(
+                                    Icons.Default.ManageSearch,
+                                    contentDescription = "Buscar fontes autorizadas",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                         IconButton(onClick = onCreateLocalPlaylist) {
                             Icon(
@@ -1064,7 +1188,7 @@ fun YouTubePlaylistInspectorDialog(
                 }
 
                 // Track List
-                LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                LazyColumn(modifier = Modifier.heightIn(max = 350.dp)) {
                     items(items, key = { it.track.videoId }) { entry ->
                         Surface(
                             modifier = Modifier
@@ -1089,32 +1213,67 @@ fun YouTubePlaylistInspectorDialog(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    Text(
-                                        text = entry.statusText,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (entry.authorizedMatch != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        val statusColor = when {
+                                            entry.jamendoMatch != null -> MaterialTheme.colorScheme.primary
+                                            entry.authorizedMatch != null -> MaterialTheme.colorScheme.secondary
+                                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                        }
+                                        val statusIcon = when {
+                                            entry.jamendoMatch != null -> Icons.Default.CheckCircle
+                                            entry.authorizedMatch != null -> Icons.Default.LibraryMusic
+                                            else -> null
+                                        }
 
-                                if (entry.authorizedMatch != null) {
-                                    IconButton(onClick = { onDownloadItemMatch(entry.track, entry.authorizedMatch) }) {
-                                        Icon(
-                                            Icons.Default.Download,
-                                            contentDescription = "Baixar",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
+                                        if (statusIcon != null) {
+                                            Icon(
+                                                imageVector = statusIcon,
+                                                contentDescription = null,
+                                                tint = statusColor,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                        }
+                                        Text(
+                                            text = entry.statusText,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = statusColor,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
-                                } else {
-                                    IconButton(onClick = { onLinkItemAudio(entry.track) }) {
-                                        Icon(
-                                            Icons.Default.AttachFile,
-                                            contentDescription = "Vincular",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(20.dp)
-                                        )
+                                }
+
+                                when {
+                                    entry.jamendoMatch != null -> {
+                                        IconButton(onClick = { onDownloadJamendoMatch(entry.track, entry.jamendoMatch) }) {
+                                            Icon(
+                                                Icons.Default.Download,
+                                                contentDescription = "Baixar Jamendo",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                    entry.authorizedMatch != null -> {
+                                        IconButton(onClick = { onDownloadArchiveMatch(entry.track, entry.authorizedMatch) }) {
+                                            Icon(
+                                                Icons.Default.Download,
+                                                contentDescription = "Baixar Archive",
+                                                tint = MaterialTheme.colorScheme.secondary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                    else -> {
+                                        IconButton(onClick = { onLinkItemAudio(entry.track) }) {
+                                            Icon(
+                                                Icons.Default.AttachFile,
+                                                contentDescription = "Vincular local",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
