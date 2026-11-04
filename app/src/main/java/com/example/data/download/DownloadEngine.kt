@@ -170,6 +170,19 @@ class DownloadEngine(
             val existingSize = if (targetFile.exists()) targetFile.length() else 0L
 
             try {
+                // Check if user accidentally passed an Archive.org item/directory URL instead of a file
+                val itemPageRegex = Regex("""^https?://(?:www\.)?archive\.org/(?:download|details|metadata)/([^/]+)/?$""", RegexOption.IGNORE_CASE)
+                if (itemPageRegex.matches(currentItem.url.trim())) {
+                    val itemId = itemPageRegex.find(currentItem.url.trim())?.groupValues?.get(1) ?: ""
+                    throw Exception("O link informado aponta para a pasta do item '$itemId' no Internet Archive, e não para um arquivo de áudio específico. Escolha a música na aba 'Pesquisar IA' para baixar.")
+                }
+
+                Log.i("MyatoDownloadDiagnostic", "=== INICIANDO DOWNLOAD ===")
+                Log.i("MyatoDownloadDiagnostic", "ID do Download: $id")
+                Log.i("MyatoDownloadDiagnostic", "URL Solicitada: ${currentItem.url}")
+                Log.i("MyatoDownloadDiagnostic", "Arquivo de Destino: ${targetFile.name}")
+                Log.i("MyatoDownloadDiagnostic", "Tamanho Atual em Disco: $existingSize bytes")
+
                 val requestBuilder = Request.Builder()
                     .url(currentItem.url)
                     .header("User-Agent", "MyatoPlayer/2.0 (Android; Linux)")
@@ -180,21 +193,34 @@ class DownloadEngine(
                 }
 
                 val response = client.newCall(requestBuilder.build()).execute()
-
+                val finalUrl = response.request.url.toString()
                 val actualResuming = response.code == 206 && existingSize > 0
+                val contentType = response.header("Content-Type")
+
+                Log.i("MyatoDownloadDiagnostic", "Código HTTP: ${response.code} (${response.message})")
+                Log.i("MyatoDownloadDiagnostic", "URL Final (após redirecionamento): $finalUrl")
+                Log.i("MyatoDownloadDiagnostic", "Content-Type retornado: $contentType")
 
                 if (!response.isSuccessful && response.code != 206) {
-                    throw Exception("Servidor respondeu com erro HTTP ${response.code}: ${response.message}")
+                    val errorMsg = when (response.code) {
+                        401, 403 -> "Acesso restrito ou não autorizado pelo Internet Archive para este arquivo (HTTP ${response.code})."
+                        404 -> "O arquivo solicitado não foi encontrado nos servidores do Internet Archive (HTTP 404)."
+                        429 -> "Limite de requisições temporariamente atingido no Internet Archive (HTTP 429). Aguarde alguns segundos e tente novamente."
+                        in 500..599 -> "Servidor do Internet Archive temporariamente instável ou indisponível (HTTP ${response.code})."
+                        else -> "Servidor respondeu com erro HTTP ${response.code}: ${response.message}"
+                    }
+                    throw Exception(errorMsg)
                 }
 
                 // Verify Content-Type before writing bytes to avoid saving HTML error pages
-                val contentType = response.header("Content-Type")
                 if (!AudioValidator.isAudioContentType(contentType)) {
-                    throw Exception("O link retornou conteúdo não-áudio ($contentType). Verifique se o link é direto para o arquivo de áudio.")
+                    throw Exception("O link retornou conteúdo não-áudio ($contentType). Verifique se o link é direto para o arquivo de áudio e não uma página web.")
                 }
 
                 val body = response.body ?: throw Exception("Corpo da resposta HTTP vazio.")
                 val contentLength = body.contentLength()
+                Log.i("MyatoDownloadDiagnostic", "Content-Length do servidor: $contentLength bytes")
+
                 val totalBytes = if (actualResuming) {
                     existingSize + contentLength
                 } else if (contentLength > 0) {
@@ -274,6 +300,12 @@ class DownloadEngine(
                 }
 
                 val validAudio = validation as AudioValidationResult.Valid
+
+                Log.i("MyatoDownloadDiagnostic", "Validação Concluída com Sucesso:")
+                Log.i("MyatoDownloadDiagnostic", "  - Formato: ${validAudio.format}")
+                Log.i("MyatoDownloadDiagnostic", "  - MIME-Type: ${validAudio.mimeType}")
+                Log.i("MyatoDownloadDiagnostic", "  - Duração: ${validAudio.durationMs}ms")
+                Log.i("MyatoDownloadDiagnostic", "  - Tamanho em disco: ${targetFile.length()} bytes")
 
                 // Extract or refine metadata from the validated audio file
                 var finalTitle = currentItem.title

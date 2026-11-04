@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -46,6 +47,7 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
     var searchIAInput by remember { mutableStateOf("") }
     var showAdvancedInput by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Biblioteca, 1: Ativos, 2: Pesquisar IA
+    var inputErrorMessage by remember { mutableStateOf<String?>(null) }
 
     // Trigger repair on entering screen to verify existing and old downloads
     LaunchedEffect(Unit) {
@@ -229,12 +231,24 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                             Spacer(modifier = Modifier.height(8.dp))
                             OutlinedTextField(
                                 value = urlInput,
-                                onValueChange = { urlInput = it },
+                                onValueChange = {
+                                    urlInput = it
+                                    inputErrorMessage = null
+                                },
                                 placeholder = { Text("Cole o link direto (.mp3, .flac) ou ID do Internet Archive") },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp)
                             )
+
+                            if (inputErrorMessage != null) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = inputErrorMessage!!,
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
 
                             AnimatedVisibility(visible = showAdvancedInput) {
                                 Column(modifier = Modifier.padding(top = 8.dp)) {
@@ -259,20 +273,28 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                                     onClick = {
                                         val trimmed = urlInput.trim()
                                         if (trimmed.isNotBlank()) {
+                                            // Check if user entered an external service link (e.g. YouTube)
+                                            if (archiveViewModel.isExternalServiceUrl(trimmed)) {
+                                                inputErrorMessage = "Links de serviços como YouTube ou Spotify não são compatíveis. O Myato Player realiza pesquisas e downloads de músicas diretamente do acervo público e legal do Internet Archive (archive.org)."
+                                                return@Button
+                                            }
+
                                             // Check if user entered an Internet Archive link or identifier
                                             val archiveId = archiveViewModel.extractArchiveIdentifier(trimmed)
                                             val isDirectAudioUrl = trimmed.endsWith(".mp3", ignoreCase = true) ||
                                                     trimmed.endsWith(".flac", ignoreCase = true) ||
                                                     trimmed.endsWith(".wav", ignoreCase = true) ||
                                                     trimmed.endsWith(".ogg", ignoreCase = true) ||
-                                                    trimmed.endsWith(".m4a", ignoreCase = true)
+                                                    trimmed.endsWith(".m4a", ignoreCase = true) ||
+                                                    trimmed.endsWith(".aac", ignoreCase = true)
 
                                             if (archiveId != null && !isDirectAudioUrl) {
-                                                // It is an Archive item or details URL! Resolve via metadata:
+                                                // It is an Archive item, identifier or details URL! Resolve via metadata:
                                                 selectedTab = 2 // Switch to Archive search/details tab
                                                 archiveViewModel.getMetadata(archiveId)
                                                 urlInput = ""
                                                 titleInput = ""
+                                                inputErrorMessage = null
                                             } else {
                                                 viewModel.startDownload(
                                                     url = trimmed,
@@ -280,6 +302,7 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                                                 )
                                                 urlInput = ""
                                                 titleInput = ""
+                                                inputErrorMessage = null
                                             }
                                         }
                                     },
@@ -605,15 +628,25 @@ fun MetadataDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Arquivos de áudio disponíveis:", style = MaterialTheme.typography.labelLarge)
-                        if (files.size > 1 && isAuthorized) {
-                            TextButton(onClick = { files.forEach { onDownload(it) } }) {
-                                Text("Baixar Tudo", style = MaterialTheme.typography.labelMedium)
+                        Text("Faixas disponíveis (${files.size}):", style = MaterialTheme.typography.labelLarge)
+                        if (isAuthorized) {
+                            Row {
+                                if (files.isNotEmpty()) {
+                                    TextButton(onClick = { onDownload(files.first()) }) {
+                                        Text("Baixar Principal", style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
+                                if (files.size > 1) {
+                                    TextButton(onClick = { files.forEach { onDownload(it) } }) {
+                                        Text("Baixar Tudo", style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
                             }
                         }
                     }
                     LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
-                        items(files) { file ->
+                        itemsIndexed(files) { index, file ->
+                            val isRecommended = index == 0
                             val title = file.title?.takeIf { it.isNotBlank() } ?: file.name
                             val sizeMb = file.size?.toLongOrNull()?.let { "%.1f MB".format(it / 1024.0 / 1024.0) } ?: ""
                             val lengthSec = file.length?.toDoubleOrNull()?.let {
@@ -631,12 +664,30 @@ fun MetadataDialog(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        title,
-                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            title,
+                                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        )
+                                        if (isRecommended) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Surface(
+                                                color = MaterialTheme.colorScheme.primaryContainer,
+                                                shape = RoundedCornerShape(4.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Recomendado",
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+                                        }
+                                    }
                                     Text(
                                         details,
                                         style = MaterialTheme.typography.labelSmall,

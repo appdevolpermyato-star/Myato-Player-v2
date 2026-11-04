@@ -92,4 +92,48 @@ class DownloadSystemTest {
         val url = vm.buildDownloadUrl("item_123", "01 - Track Name with Spaces.mp3")
         assertEquals("https://archive.org/download/item_123/01%20-%20Track%20Name%20with%20Spaces.mp3", url)
     }
+
+    @Test
+    fun testExternalServiceDetection() {
+        val vm = ArchiveViewModel()
+        assertTrue(vm.isExternalServiceUrl("https://www.youtube.com/watch?v=1ybpHiqnQY4"))
+        assertTrue(vm.isExternalServiceUrl("https://youtu.be/1ybpHiqnQY4"))
+        assertTrue(vm.isExternalServiceUrl("https://open.spotify.com/track/123"))
+        assertFalse(vm.isExternalServiceUrl("https://archive.org/details/beethoven_sym5"))
+        assertFalse(vm.isExternalServiceUrl("beethoven_sym5"))
+        assertNull(vm.extractArchiveIdentifier("https://www.youtube.com/watch?v=1ybpHiqnQY4"))
+    }
+
+    @Test
+    fun testAudioFormatPriority() {
+        val vm = ArchiveViewModel()
+        val mp3File = com.example.data.network.ArchiveFile(name = "track.mp3", format = "VBR MP3", size = "5000000")
+        val m4aFile = com.example.data.network.ArchiveFile(name = "track.m4a", format = "AAC Audio", size = "5000000")
+        val flacFile = com.example.data.network.ArchiveFile(name = "track.flac", format = "FLAC", size = "20000000")
+        val oggFile = com.example.data.network.ArchiveFile(name = "track.ogg", format = "Ogg Vorbis", size = "4000000")
+        val wavFile = com.example.data.network.ArchiveFile(name = "track.wav", format = "WAV", size = "30000000")
+
+        assertTrue(vm.getAudioFormatPriority(mp3File) < vm.getAudioFormatPriority(m4aFile))
+        assertTrue(vm.getAudioFormatPriority(m4aFile) < vm.getAudioFormatPriority(flacFile))
+        assertTrue(vm.getAudioFormatPriority(flacFile) < vm.getAudioFormatPriority(oggFile))
+        assertTrue(vm.getAudioFormatPriority(oggFile) < vm.getAudioFormatPriority(wavFile))
+    }
+
+    @Test
+    fun testExcludeNonAudioFiles() {
+        val vm = ArchiveViewModel()
+        val xmlFile = com.example.data.network.ArchiveFile(name = "item_files.xml", format = "Metadata", size = "5000")
+        val jsonFile = com.example.data.network.ArchiveFile(name = "item_meta.json", format = "Metadata", size = "2000")
+        val torrentFile = com.example.data.network.ArchiveFile(name = "item_archive.torrent", format = "Archive BitTorrent", size = "10000")
+        val jpgFile = com.example.data.network.ArchiveFile(name = "cover.jpg", format = "JPEG", size = "50000")
+        val spectroFile = com.example.data.network.ArchiveFile(name = "track_spectrogram.png", format = "Spectrogram", size = "80000")
+        val validMp3 = com.example.data.network.ArchiveFile(name = "01-symphony.mp3", format = "VBR MP3", size = "8000000")
+
+        assertFalse(vm.isAudioFile(xmlFile))
+        assertFalse(vm.isAudioFile(jsonFile))
+        assertFalse(vm.isAudioFile(torrentFile))
+        assertFalse(vm.isAudioFile(jpgFile))
+        assertFalse(vm.isAudioFile(spectroFile))
+        assertTrue(vm.isAudioFile(validMp3))
+    }
 }
