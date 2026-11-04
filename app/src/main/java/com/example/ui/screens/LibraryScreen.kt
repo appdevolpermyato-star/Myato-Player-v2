@@ -923,7 +923,7 @@ fun AiSuggestionsRow(state: AiUiState, onGetSuggestions: () -> Unit) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Analisando favoritos com Gemini...",
+                        text = "Analisando favoritos localmente...",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

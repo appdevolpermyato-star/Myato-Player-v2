@@ -33,8 +33,7 @@ import com.example.ui.auth.AuthUiState
 import com.example.ui.auth.AuthViewModel
 import com.example.ui.music.MusicViewModel
 import com.example.ui.music.PlaybackState
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
+import com.example.ui.util.UserProfile
 
 sealed class Screen(val route: String, val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     data object Home : Screen("home", "Início", Icons.Default.Home)
@@ -60,7 +59,7 @@ fun MainScreen(
     var showAccountDialog by remember { mutableStateOf(false) }
 
     val authState by authViewModel.uiState.collectAsState()
-    val currentUser = Firebase.auth.currentUser
+    val localProfile = (authState as? AuthUiState.Success)?.profile
 
     if (showPlayer) {
         PlayerScreen(
@@ -110,11 +109,11 @@ fun MainScreen(
                             )
                         }
 
-                        // Account Button (Optional Google Login for Cloud Sync)
+                        // Local Account Button
                         IconButton(onClick = { showAccountDialog = true }) {
-                            if (currentUser?.photoUrl != null) {
+                            if (localProfile?.photoUrl != null) {
                                 AsyncImage(
-                                    model = currentUser.photoUrl,
+                                    model = localProfile.photoUrl,
                                     contentDescription = "Perfil",
                                     modifier = Modifier
                                         .size(30.dp)
@@ -122,9 +121,9 @@ fun MainScreen(
                                 )
                             } else {
                                 Icon(
-                                    imageVector = if (currentUser != null) Icons.Default.AccountCircle else Icons.Default.PersonOutline,
-                                    contentDescription = "Conta",
-                                    tint = if (currentUser != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    imageVector = if (localProfile != null) Icons.Default.AccountCircle else Icons.Default.PersonOutline,
+                                    contentDescription = "Perfil",
+                                    tint = if (localProfile != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -230,13 +229,13 @@ fun MainScreen(
         EqualizerDialog(viewModel = musicViewModel, onDismiss = { showEqualizer = false })
     }
 
-    // Account & Google Sign-In Dialog (Never forced, completely optional)
+    // Local Account & Profile Dialog
     if (showAccountDialog) {
         val context = LocalContext.current
         AccountDialog(
-            currentUser = currentUser,
+            userProfile = localProfile,
             authState = authState,
-            onSignIn = { authViewModel.signIn(context) },
+            onCreateProfile = { name, email -> authViewModel.createLocalProfile(context, name, email) },
             onSignOut = { authViewModel.signOut(context) },
             onDismiss = { showAccountDialog = false }
         )
@@ -353,46 +352,49 @@ fun NowPlayingBar(viewModel: MusicViewModel, onExpand: () -> Unit) {
 
 @Composable
 fun AccountDialog(
-    currentUser: com.google.firebase.auth.FirebaseUser?,
+    userProfile: UserProfile?,
     authState: AuthUiState,
-    onSignIn: () -> Unit,
+    onCreateProfile: (String, String) -> Unit,
     onSignOut: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    var name by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(if (currentUser != null) "Sua Conta" else "Conectar Conta")
+            Text(if (userProfile != null) "Seu Perfil Local" else "Criar Perfil Local")
         },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                if (currentUser != null) {
+                if (userProfile != null) {
                     Text(
-                        text = "Conectado como:",
+                        text = "Usuário:",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = currentUser.displayName ?: "Usuário Myato",
+                        text = userProfile.name,
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                     Text(
-                        text = currentUser.email.orEmpty(),
+                        text = userProfile.email,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Default.CloudDone,
+                            imageVector = Icons.Default.PhonelinkRing,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Sincronização em Nuvem Ativa",
+                            text = "Modo 100% Offline Ativo",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -401,17 +403,34 @@ fun AccountDialog(
                     OutlinedButton(
                         onClick = {
                             onSignOut()
-                            onDismiss()
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Sair da Conta")
+                        Text("Remover Perfil")
                     }
                 } else {
                     Text(
-                        text = "O Myato Player funciona 100% offline sem login! Se desejar, faça login com sua conta Google para salvar suas playlists e favoritos na nuvem.",
+                        text = "A sincronização em nuvem foi removida. Crie um perfil local para identificar seu Myato Player no dispositivo.",
                         style = MaterialTheme.typography.bodyMedium
                     )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Nome") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it },
+                        label = { Text("E-mail (opcional)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
                     Spacer(modifier = Modifier.height(20.dp))
 
                     if (authState is AuthUiState.Loading) {
@@ -420,10 +439,10 @@ fun AccountDialog(
                         }
                     } else {
                         Button(
-                            onClick = onSignIn,
+                            onClick = { onCreateProfile(name.ifBlank { "Usuário Myato" }, email) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Entrar com Google")
+                            Text("Salvar Perfil")
                         }
                     }
                 }

@@ -35,7 +35,6 @@ import com.example.ui.music.MusicViewModel
 import com.example.ui.screens.MainScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.util.PermissionHelper
-import com.example.ui.util.configureAppCheck
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -43,9 +42,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        // Configure App Check contract for Firebase AI Logic
-        configureAppCheck(this, intent)
 
         val database = MusicDatabase.getDatabase(this)
         val repository = MusicRepository(this, database.musicDao())
@@ -57,6 +53,9 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val authViewModel: AuthViewModel = viewModel()
+                    LaunchedEffect(Unit) {
+                        authViewModel.init(this@MainActivity)
+                    }
                     val musicViewModel: MusicViewModel = viewModel(
                         factory = object : androidx.lifecycle.ViewModelProvider.Factory {
                             override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {

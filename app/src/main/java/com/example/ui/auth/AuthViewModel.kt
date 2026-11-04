@@ -1,33 +1,20 @@
 package com.example.ui.auth
 
-import android.app.Activity
 import android.content.Context
-import android.util.Log
-import androidx.credentials.ClearCredentialStateRequest
-import androidx.credentials.CredentialManager
-import androidx.credentials.CustomCredential
-import androidx.credentials.GetCredentialRequest
-import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.R
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
-import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
-import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
-import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
-import com.google.firebase.Firebase
-import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.auth.auth
+import com.example.ui.util.ProfileManager
+import com.example.ui.util.UserProfile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 sealed interface AuthUiState {
     data object Idle : AuthUiState
     data object Loading : AuthUiState
-    data class Success(val userId: String) : AuthUiState
+    data class Success(val userId: String, val profile: UserProfile) : AuthUiState
     data class Error(val message: String) : AuthUiState
 }
 
@@ -35,93 +22,59 @@ class AuthViewModel : ViewModel() {
     private val _uiState = MutableStateFlow<AuthUiState>(AuthUiState.Idle)
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
 
-    init {
-        val user = Firebase.auth.currentUser
-        if (user != null) {
-            _uiState.value = AuthUiState.Success(user.uid)
+    private var profileManager: ProfileManager? = null
+
+    fun init(context: Context) {
+        if (profileManager != null) return
+        profileManager = ProfileManager(context)
+        viewModelScope.launch {
+            profileManager?.userProfile?.collect { profile ->
+                if (profile != null) {
+                    _uiState.value = AuthUiState.Success(profile.id, profile)
+                } else {
+                    _uiState.value = AuthUiState.Idle
+                }
+            }
         }
     }
 
     fun attemptAutoSignIn(context: Context) {
-        if (Firebase.auth.currentUser != null) return
+        init(context)
+    }
 
-        val credentialManager = CredentialManager.create(context)
-        val clientId = try {
-            context.getString(R.string.default_web_client_id)
-        } catch (e: Exception) {
-            return
-        }
-
-        val googleIdOption = GetGoogleIdOption.Builder()
-            .setFilterByAuthorizedAccounts(true)
-            .setServerClientId(clientId)
-            .setAutoSelectEnabled(true)
-            .build()
-
-        val request = GetCredentialRequest.Builder()
-            .addCredentialOption(googleIdOption)
-            .build()
-
+    fun createLocalProfile(context: Context, name: String, email: String) {
+        val pm = profileManager ?: ProfileManager(context)
+        profileManager = pm
         viewModelScope.launch {
-            try {
-                val result = credentialManager.getCredential(context, request)
-                handleCredential(result.credential)
-            } catch (e: Exception) {
-                // Silent fail for auto sign-in
-            }
+            _uiState.value = AuthUiState.Loading
+            val profile = UserProfile(
+                id = "local_${System.currentTimeMillis()}",
+                name = name,
+                email = email
+            )
+            pm.saveProfile(profile)
+            _uiState.value = AuthUiState.Success(profile.id, profile)
+        }
+    }
+
+    fun updateProfile(context: Context, name: String, email: String) {
+        val pm = profileManager ?: ProfileManager(context)
+        viewModelScope.launch {
+            val current = pm.userProfile.first() ?: UserProfile()
+            val updated = current.copy(name = name, email = email)
+            pm.saveProfile(updated)
         }
     }
 
     fun signIn(context: Context) {
-        _uiState.value = AuthUiState.Loading
-        val credentialManager = CredentialManager.create(context)
-        val clientId = try {
-            context.getString(R.string.default_web_client_id)
-        } catch (e: Exception) {
-            _uiState.value = AuthUiState.Error("Google Sign-In configuration missing")
-            return
-        }
-
-        val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
-        val request = GetCredentialRequest.Builder()
-            .addCredentialOption(signInOption)
-            .build()
-
-        viewModelScope.launch {
-            try {
-                val result = credentialManager.getCredential(context as Activity, request)
-                handleCredential(result.credential)
-            } catch (e: GetCredentialCancellationException) {
-                _uiState.value = AuthUiState.Idle
-            } catch (e: Exception) {
-                Log.e("Auth", "Sign in failed", e)
-                _uiState.value = AuthUiState.Error(e.localizedMessage ?: "Sign in failed")
-            }
-        }
-    }
-
-    private suspend fun handleCredential(credential: androidx.credentials.Credential) {
-        if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-            val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
-            val authCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
-            val authResult = Firebase.auth.signInWithCredential(authCredential).await()
-            _uiState.value = AuthUiState.Success(authResult.user?.uid ?: "")
-        } else {
-            _uiState.value = AuthUiState.Error("Unexpected credential type")
-        }
+        _uiState.value = AuthUiState.Error("A sincronização online foi removida. Utilize o Perfil Local.")
     }
 
     fun signOut(context: Context) {
-        val credentialManager = CredentialManager.create(context)
-        Firebase.auth.signOut()
+        val pm = profileManager ?: ProfileManager(context)
         viewModelScope.launch {
-            try {
-                credentialManager.clearCredentialState(ClearCredentialStateRequest())
-            } catch (e: Exception) {
-                Log.e("Auth", "Failed to clear credential state", e)
-            } finally {
-                _uiState.value = AuthUiState.Idle
-            }
+            pm.clearProfile()
+            _uiState.value = AuthUiState.Idle
         }
     }
 }
