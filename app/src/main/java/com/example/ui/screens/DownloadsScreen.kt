@@ -44,6 +44,11 @@ import com.example.ui.jamendo.JamendoFilterCategory
 import com.example.ui.jamendo.JamendoSearchType
 import com.example.ui.jamendo.JamendoSearchViewModel
 import com.example.ui.jamendo.JamendoUiState
+import com.example.ui.search.MultiPlatformSearchViewModel
+import com.example.ui.search.MultiPlatformUiState
+import com.example.ui.search.MusicPlatform
+import com.example.ui.search.SearchSourceFilter
+import com.example.ui.search.UnifiedTrack
 import com.example.ui.music.MusicViewModel
 import com.example.ui.music.PlaybackState
 import com.example.ui.util.LinkClassifier
@@ -78,6 +83,12 @@ fun DownloadsScreen(
     var jamendoQuery by remember { mutableStateOf("") }
     var jamendoSearchType by remember { mutableStateOf(JamendoSearchType.TRACKS) }
     var jamendoCategory by remember { mutableStateOf(JamendoFilterCategory.ALL) }
+
+    val multiSearchViewModel: MultiPlatformSearchViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val multiSearchState by multiSearchViewModel.uiState.collectAsState()
+
+    var multiQuery by remember { mutableStateOf("") }
+    var searchSourceFilter by remember { mutableStateOf(SearchSourceFilter.ALL) }
 
     var urlInput by remember { mutableStateOf("") }
     var titleInput by remember { mutableStateOf("") }
@@ -668,21 +679,21 @@ fun DownloadsScreen(
                 }
             }
             3 -> {
-                // Jamendo Catalog Tab
+                // Jamendo & SoundCloud Multi-Platform Search Tab
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     OutlinedTextField(
-                        value = jamendoQuery,
-                        onValueChange = { jamendoQuery = it },
-                        placeholder = { Text("Pesquisar músicas, álbuns ou playlists no Jamendo...") },
+                        value = multiQuery,
+                        onValueChange = { multiQuery = it },
+                        placeholder = { Text("Pesquisar músicas no Jamendo e SoundCloud...") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         trailingIcon = {
                             IconButton(onClick = {
-                                jamendoSearchViewModel.search(jamendoQuery, jamendoCategory, jamendoSearchType)
+                                multiSearchViewModel.search(multiQuery, searchSourceFilter)
                             }) {
                                 Icon(Icons.Default.Search, contentDescription = "Pesquisar")
                             }
@@ -692,74 +703,57 @@ fun DownloadsScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
+                    // Source Filter Chips: Todas as fontes | Jamendo | SoundCloud
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         FilterChip(
-                            selected = jamendoSearchType == JamendoSearchType.TRACKS,
+                            selected = searchSourceFilter == SearchSourceFilter.ALL,
                             onClick = {
-                                jamendoSearchType = JamendoSearchType.TRACKS
-                                jamendoSearchViewModel.search(jamendoQuery, jamendoCategory, jamendoSearchType)
+                                searchSourceFilter = SearchSourceFilter.ALL
+                                if (multiQuery.isNotBlank()) {
+                                    multiSearchViewModel.search(multiQuery, searchSourceFilter)
+                                }
                             },
-                            label = { Text("Músicas") }
+                            label = { Text("Todas as Fontes") }
                         )
                         FilterChip(
-                            selected = jamendoSearchType == JamendoSearchType.ALBUMS,
+                            selected = searchSourceFilter == SearchSourceFilter.JAMENDO,
                             onClick = {
-                                jamendoSearchType = JamendoSearchType.ALBUMS
-                                jamendoSearchViewModel.search(jamendoQuery, jamendoCategory, jamendoSearchType)
+                                searchSourceFilter = SearchSourceFilter.JAMENDO
+                                if (multiQuery.isNotBlank()) {
+                                    multiSearchViewModel.search(multiQuery, searchSourceFilter)
+                                }
                             },
-                            label = { Text("Álbuns") }
+                            label = { Text("Jamendo") }
                         )
                         FilterChip(
-                            selected = jamendoSearchType == JamendoSearchType.PLAYLISTS,
+                            selected = searchSourceFilter == SearchSourceFilter.SOUNDCLOUD,
                             onClick = {
-                                jamendoSearchType = JamendoSearchType.PLAYLISTS
-                                jamendoSearchViewModel.search(jamendoQuery, jamendoCategory, jamendoSearchType)
+                                searchSourceFilter = SearchSourceFilter.SOUNDCLOUD
+                                if (multiQuery.isNotBlank()) {
+                                    multiSearchViewModel.search(multiQuery, searchSourceFilter)
+                                }
                             },
-                            label = { Text("Playlists") }
+                            label = { Text("SoundCloud") }
                         )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        val categories = listOf(
-                            JamendoFilterCategory.ALL to "Geral",
-                            JamendoFilterCategory.TRACK_NAME to "Nome",
-                            JamendoFilterCategory.ARTIST to "Artista",
-                            JamendoFilterCategory.ALBUM to "Álbum",
-                            JamendoFilterCategory.GENRE to "Gênero"
-                        )
-                        categories.forEach { (cat, label) ->
-                            SuggestionChip(
-                                onClick = {
-                                    jamendoCategory = cat
-                                    jamendoSearchViewModel.search(jamendoQuery, jamendoCategory, jamendoSearchType)
-                                },
-                                label = { Text(label, fontSize = 11.sp) }
-                            )
-                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Box(modifier = Modifier.weight(1f)) {
-                        when (jamendoState) {
-                            is JamendoUiState.Loading -> {
+                        when (multiSearchState) {
+                            is MultiPlatformUiState.Loading -> {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                                 }
                             }
-                            is JamendoUiState.TracksLoaded -> {
-                                val state = jamendoState as JamendoUiState.TracksLoaded
+                            is MultiPlatformUiState.Success -> {
+                                val state = multiSearchState as MultiPlatformUiState.Success
                                 if (state.tracks.isEmpty()) {
                                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        Text("Nenhuma música encontrada no Jamendo.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Nenhuma música encontrada nas plataformas selecionadas.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 } else {
                                     LazyColumn(
@@ -767,221 +761,62 @@ fun DownloadsScreen(
                                         contentPadding = PaddingValues(bottom = 120.dp)
                                     ) {
                                         items(state.tracks, key = { it.id }) { track ->
-                                            JamendoTrackCard(
+                                            MultiPlatformTrackCard(
                                                 track = track,
                                                 onPlay = {
-                                                    val song = Song(
-                                                        id = "jam_${track.id}",
-                                                        title = track.name,
-                                                        artist = track.artist_name,
-                                                        album = track.album_name ?: "Jamendo Music",
-                                                        duration = (track.duration * 1000).toLong(),
-                                                        mediaUri = track.audio,
-                                                        coverUri = track.album_image ?: track.image
-                                                    )
-                                                    viewModel.playSong(song)
+                                                    if (!track.streamUrl.isNullOrEmpty()) {
+                                                        val song = Song(
+                                                            id = track.id,
+                                                            title = track.title,
+                                                            artist = track.artist,
+                                                            album = track.album ?: "Streaming",
+                                                            duration = track.durationMs,
+                                                            mediaUri = track.streamUrl,
+                                                            coverUri = track.coverUrl
+                                                        )
+                                                        viewModel.playSong(song)
+                                                    } else {
+                                                        Toast.makeText(context, "Link de streaming indisponível para esta faixa.", Toast.LENGTH_SHORT).show()
+                                                    }
                                                 },
                                                 onDownload = {
-                                                    if (!track.audiodownload_allowed) {
-                                                        Toast.makeText(context, "Download bloqueado pelo artista (licença restrita).", Toast.LENGTH_LONG).show()
-                                                        return@JamendoTrackCard
+                                                    if (!track.isDownloadAllowed || track.downloadUrl.isNullOrEmpty()) {
+                                                        Toast.makeText(context, "Download não permitido ou indisponível para esta faixa.", Toast.LENGTH_LONG).show()
+                                                        return@MultiPlatformTrackCard
                                                     }
-                                                    val url = track.audiodownload?.takeIf { it.isNotBlank() } ?: track.audio
                                                     viewModel.startDownload(
-                                                        url = url,
-                                                        title = track.name,
-                                                        artist = track.artist_name,
-                                                        album = track.album_name ?: "Jamendo",
-                                                        expectedDuration = (track.duration * 1000).toLong()
+                                                        url = track.downloadUrl!!,
+                                                        title = track.title,
+                                                        artist = track.artist,
+                                                        album = track.album ?: "Download",
+                                                        expectedDuration = track.durationMs
                                                     )
                                                     selectedTab = 1
-                                                    Toast.makeText(context, "Download iniciado: ${track.artist_name} - ${track.name}", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, "Download iniciado: ${track.artist} - ${track.title}", Toast.LENGTH_SHORT).show()
                                                 }
                                             )
-                                        }
-                                        if (state.hasMore) {
-                                            item {
-                                                Button(
-                                                    onClick = {
-                                                        jamendoSearchViewModel.search(jamendoQuery, jamendoCategory, jamendoSearchType, state.offset + 20)
-                                                    },
-                                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-                                                ) {
-                                                    Text("Carregar Mais")
-                                                }
-                                            }
                                         }
                                     }
                                 }
                             }
-                            is JamendoUiState.AlbumsLoaded -> {
-                                val state = jamendoState as JamendoUiState.AlbumsLoaded
-                                if (state.albums.isEmpty()) {
-                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        Text("Nenhum álbum encontrado no Jamendo.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                } else {
-                                    LazyColumn(
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                                        contentPadding = PaddingValues(bottom = 120.dp)
-                                    ) {
-                                        items(state.albums, key = { it.id }) { album ->
-                                            JamendoAlbumCard(
-                                                album = album,
-                                                onClick = {
-                                                    jamendoSearchViewModel.loadAlbumDetails(album.id)
-                                                }
-                                            )
-                                        }
-                                        if (state.hasMore) {
-                                            item {
-                                                Button(
-                                                    onClick = {
-                                                        jamendoSearchViewModel.search(jamendoQuery, jamendoCategory, jamendoSearchType, state.offset + 20)
-                                                    },
-                                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-                                                ) {
-                                                    Text("Carregar Mais")
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            is JamendoUiState.PlaylistsLoaded -> {
-                                val state = jamendoState as JamendoUiState.PlaylistsLoaded
-                                if (state.playlists.isEmpty()) {
-                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        Text("Nenhuma playlist encontrada no Jamendo.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                } else {
-                                    LazyColumn(
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                                        contentPadding = PaddingValues(bottom = 120.dp)
-                                    ) {
-                                        items(state.playlists, key = { it.id }) { playlist ->
-                                            JamendoPlaylistCard(
-                                                playlist = playlist,
-                                                onClick = {
-                                                    jamendoSearchViewModel.loadPlaylistDetails(playlist.id)
-                                                }
-                                            )
-                                        }
-                                        if (state.hasMore) {
-                                            item {
-                                                Button(
-                                                    onClick = {
-                                                        jamendoSearchViewModel.search(jamendoQuery, jamendoCategory, jamendoSearchType, state.offset + 20)
-                                                    },
-                                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-                                                ) {
-                                                    Text("Carregar Mais")
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            is JamendoUiState.AlbumDetailLoaded -> {
-                                val details = jamendoState as JamendoUiState.AlbumDetailLoaded
-                                JamendoAlbumDetailDialog(
-                                    album = details.album,
-                                    tracks = details.tracks,
-                                    onDismiss = { jamendoSearchViewModel.search(jamendoQuery, jamendoCategory, jamendoSearchType) },
-                                    onDownloadTrack = { track ->
-                                        if (!track.audiodownload_allowed) {
-                                            Toast.makeText(context, "Download bloqueado para esta faixa.", Toast.LENGTH_SHORT).show()
-                                            return@JamendoAlbumDetailDialog
-                                        }
-                                        val url = track.audiodownload?.takeIf { it.isNotBlank() } ?: track.audio
-                                        viewModel.startDownload(
-                                            url = url,
-                                            title = track.name,
-                                            artist = track.artist_name,
-                                            album = details.album.name,
-                                            expectedDuration = (track.duration * 1000).toLong()
-                                        )
-                                        Toast.makeText(context, "Download iniciado: ${track.name}", Toast.LENGTH_SHORT).show()
-                                    },
-                                    onDownloadZip = {
-                                        if (!details.album.zip.isNullOrBlank()) {
-                                            viewModel.startDownload(
-                                                url = details.album.zip!!,
-                                                title = "${details.album.name} (Álbum ZIP)",
-                                                artist = details.album.artist_name,
-                                                album = details.album.name
-                                            )
-                                            selectedTab = 1
-                                            Toast.makeText(context, "Download do álbum ZIP iniciado!", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            Toast.makeText(context, "ZIP indisponível para este álbum. Baixe as faixas individualmente.", Toast.LENGTH_LONG).show()
-                                        }
-                                    }
-                                )
-                            }
-                            is JamendoUiState.PlaylistDetailLoaded -> {
-                                val details = jamendoState as JamendoUiState.PlaylistDetailLoaded
-                                JamendoPlaylistDetailDialog(
-                                    playlist = details.playlist,
-                                    tracks = details.tracks,
-                                    onDismiss = { jamendoSearchViewModel.search(jamendoQuery, jamendoCategory, jamendoSearchType) },
-                                    onDownloadTrack = { track ->
-                                        if (!track.audiodownload_allowed) {
-                                            Toast.makeText(context, "Download bloqueado para esta faixa.", Toast.LENGTH_SHORT).show()
-                                            return@JamendoPlaylistDetailDialog
-                                        }
-                                        val url = track.audiodownload?.takeIf { it.isNotBlank() } ?: track.audio
-                                        viewModel.startDownload(
-                                            url = url,
-                                            title = track.name,
-                                            artist = track.artist_name,
-                                            album = details.playlist.name,
-                                            expectedDuration = (track.duration * 1000).toLong()
-                                        )
-                                        Toast.makeText(context, "Download iniciado: ${track.name}", Toast.LENGTH_SHORT).show()
-                                    },
-                                    onDownloadAllAuthorized = {
-                                        var count = 0
-                                        var skipped = 0
-                                        details.tracks.forEach { track ->
-                                            if (track.audiodownload_allowed) {
-                                                val url = track.audiodownload?.takeIf { it.isNotBlank() } ?: track.audio
-                                                viewModel.startDownload(
-                                                    url = url,
-                                                    title = track.name,
-                                                    artist = track.artist_name,
-                                                    album = details.playlist.name,
-                                                    expectedDuration = (track.duration * 1000).toLong()
-                                                )
-                                                count++
-                                            } else {
-                                                skipped++
-                                            }
-                                        }
-                                        Toast.makeText(context, "$count músicas autorizadas baixadas. $skipped ignoradas (sem permissão).", Toast.LENGTH_LONG).show()
-                                        selectedTab = 1
-                                        jamendoSearchViewModel.search(jamendoQuery, jamendoCategory, jamendoSearchType)
-                                    }
-                                )
-                            }
-                            is JamendoUiState.Error -> {
+                            is MultiPlatformUiState.Error -> {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text((jamendoState as JamendoUiState.Error).message, color = MaterialTheme.colorScheme.error)
+                                    Text((multiSearchState as MultiPlatformUiState.Error).message, color = MaterialTheme.colorScheme.error)
                                 }
                             }
                             else -> {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         Icon(
-                                            imageVector = Icons.Default.LibraryMusic,
+                                            imageVector = Icons.Default.CloudQueue,
                                             contentDescription = null,
                                             modifier = Modifier.size(54.dp),
                                             tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
                                         )
                                         Spacer(modifier = Modifier.height(12.dp))
-                                        Text("Catálogo Oficial Jamendo API v3.0", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                                        Text("Busca Unificada Jamendo & SoundCloud", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
                                         Spacer(modifier = Modifier.height(4.dp))
-                                        Text("Pesquise músicas, álbuns e playlists com licença Creative Commons.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Pesquise e reproduza músicas de múltiplas plataformas simultaneamente.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                             }
@@ -2225,3 +2060,86 @@ fun JamendoPlaylistDetailDialog(
         }
     )
 }
+
+@Composable
+fun MultiPlatformTrackCard(
+    track: UnifiedTrack,
+    onPlay: () -> Unit,
+    onDownload: () -> Unit
+) {
+    val durationMin = (track.durationMs / 1000) / 60
+    val durationSec = (track.durationMs / 1000) % 60
+    val durationStr = "%d:%02d".format(durationMin, durationSec)
+
+    val platformName = if (track.platform == MusicPlatform.JAMENDO) "Jamendo" else "SoundCloud"
+    val platformColor = if (track.platform == MusicPlatform.JAMENDO) MaterialTheme.colorScheme.primary else Color(0xFFFF5500)
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (!track.coverUrl.isNullOrEmpty()) {
+                AsyncImage(
+                    model = track.coverUrl,
+                    contentDescription = track.title,
+                    modifier = Modifier.size(50.dp).clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Crop
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = track.title,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                        color = platformColor.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = platformName,
+                            color = platformColor,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                            fontSize = 9.sp
+                        )
+                    }
+                }
+                Text(
+                    text = "${track.artist} • $durationStr",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (track.isDownloadAllowed) "Download Disponível" else "Apenas Streaming",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (track.isDownloadAllowed) MaterialTheme.colorScheme.secondary else Color.Gray,
+                    fontSize = 10.sp
+                )
+            }
+            IconButton(onClick = onPlay, enabled = !track.streamUrl.isNullOrEmpty()) {
+                Icon(Icons.Default.PlayArrow, contentDescription = "Reproduzir", tint = MaterialTheme.colorScheme.primary)
+            }
+            IconButton(onClick = onDownload, enabled = track.isDownloadAllowed && !track.downloadUrl.isNullOrEmpty()) {
+                Icon(
+                    Icons.Default.Download,
+                    contentDescription = "Baixar",
+                    tint = if (track.isDownloadAllowed && !track.downloadUrl.isNullOrEmpty()) MaterialTheme.colorScheme.primary else Color.Gray
+                )
+            }
+        }
+    }
+}
+

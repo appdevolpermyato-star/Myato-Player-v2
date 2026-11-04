@@ -61,4 +61,13 @@ object RetrofitInstance {
             .build()
             .create(JamendoApiService::class.java)
     }
+
+    val soundCloudApi: SoundCloudApiService by lazy {
+        Retrofit.Builder()
+            .baseUrl(SoundCloudApiService.BASE_URL)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .client(client)
+            .build()
+            .create(SoundCloudApiService::class.java)
+    }
 }
