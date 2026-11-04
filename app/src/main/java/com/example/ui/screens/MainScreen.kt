@@ -31,6 +31,7 @@ import coil.compose.AsyncImage
 import com.example.R
 import com.example.ui.auth.AuthUiState
 import com.example.ui.auth.AuthViewModel
+import com.example.ui.archive.ArchiveViewModel
 import com.example.ui.music.MusicViewModel
 import com.example.ui.music.PlaybackState
 import com.example.ui.util.UserProfile
@@ -48,6 +49,7 @@ sealed class Screen(val route: String, val title: String, val icon: androidx.com
 fun MainScreen(
     musicViewModel: MusicViewModel,
     authViewModel: AuthViewModel,
+    archiveViewModel: ArchiveViewModel,
     onRequestPermissions: () -> Unit = {}
 ) {
     val navController = rememberNavController()
@@ -209,7 +211,10 @@ fun MainScreen(
                     )
                 }
                 composable(Screen.Downloads.route) {
-                    DownloadsScreen(viewModel = musicViewModel)
+                    DownloadsScreen(
+                        viewModel = musicViewModel,
+                        archiveViewModel = archiveViewModel
+                    )
                 }
                 composable(Screen.Playlists.route) {
                     PlaylistsScreen(viewModel = musicViewModel)

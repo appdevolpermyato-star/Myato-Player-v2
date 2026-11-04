@@ -31,6 +31,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.local.MusicDatabase
 import com.example.data.repository.MusicRepository
 import com.example.ui.auth.AuthViewModel
+import com.example.ui.archive.ArchiveViewModel
 import com.example.ui.music.MusicViewModel
 import com.example.ui.screens.MainScreen
 import com.example.ui.theme.MyApplicationTheme
@@ -56,6 +57,7 @@ class MainActivity : ComponentActivity() {
                     LaunchedEffect(Unit) {
                         authViewModel.init(this@MainActivity)
                     }
+                    val archiveViewModel: ArchiveViewModel = viewModel()
                     val musicViewModel: MusicViewModel = viewModel(
                         factory = object : androidx.lifecycle.ViewModelProvider.Factory {
                             override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
@@ -104,6 +106,7 @@ class MainActivity : ComponentActivity() {
                             MainScreen(
                                 musicViewModel = musicViewModel,
                                 authViewModel = authViewModel,
+                                archiveViewModel = archiveViewModel,
                                 onRequestPermissions = {
                                     permissionLauncher.launch(PermissionHelper.getStartupPermissions())
                                 }

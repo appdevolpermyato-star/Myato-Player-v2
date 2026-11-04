@@ -8,7 +8,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -18,7 +17,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,17 +26,24 @@ import com.example.data.model.DownloadItem
 import com.example.data.model.DownloadStatus
 import com.example.data.model.Song
 import com.example.ui.music.MusicViewModel
+import com.example.data.network.ArchiveDoc
+import com.example.data.network.ArchiveFile
+import com.example.data.network.ArchiveMetadata
+import com.example.ui.archive.ArchiveUiState
+import com.example.ui.archive.ArchiveViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DownloadsScreen(viewModel: MusicViewModel) {
+fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewModel) {
     val downloads by viewModel.allDownloads.collectAsState()
     val downloadedSongs by viewModel.downloadedSongs.collectAsState()
+    val archiveState by archiveViewModel.uiState.collectAsState()
 
     var urlInput by remember { mutableStateOf("") }
     var titleInput by remember { mutableStateOf("") }
+    var searchIAInput by remember { mutableStateOf("") }
     var showAdvancedInput by remember { mutableStateOf(false) }
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Concluídos, 1: Em Andamento
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Concluídos, 1: Ativos, 2: Pesquisar IA
 
     val activeDownloads = remember(downloads) {
         downloads.filter { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.PAUSED || it.status == DownloadStatus.FAILED }
@@ -52,190 +57,15 @@ fun DownloadsScreen(viewModel: MusicViewModel) {
         }
     }
 
-    // Curated royalty-free sample audio tracks for quick 1-tap download testing
-    val sampleTracks = listOf(
-        Triple("SoundHelix Synth 1", "Myato Cyberwave", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"),
-        Triple("SoundHelix Ambient 2", "Deep Focus Sound", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"),
-        Triple("SoundHelix Electro 3", "Neon Dreams", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3"),
-        Triple("SoundHelix Bass 4", "Future Bass Club", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3")
-    )
-
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
         // HEADER
-        HeaderSection("Downloads & Importados")
+        HeaderSection("Sistema de Downloads")
 
-        // 1. MUKA-STYLE URL DOWNLOADER INPUT CARD
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 6.dp),
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-            tonalElevation = 4.dp
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.CloudDownload,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Baixar por Link Direto",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                    }
-
-                    TextButton(
-                        onClick = { showAdvancedInput = !showAdvancedInput },
-                        contentPadding = PaddingValues(horizontal = 4.dp)
-                    ) {
-                        Text(
-                            text = if (showAdvancedInput) "Ocultar" else "Personalizar",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = urlInput,
-                    onValueChange = { urlInput = it },
-                    placeholder = { Text("Cole o link direto do áudio (MP3, FLAC, WAV, AAC...)") },
-                    singleLine = true,
-                    leadingIcon = {
-                        Icon(Icons.Default.Link, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    },
-                    trailingIcon = {
-                        if (urlInput.isNotEmpty()) {
-                            IconButton(onClick = { urlInput = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Limpar")
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                AnimatedVisibility(visible = showAdvancedInput) {
-                    Column(modifier = Modifier.padding(top = 8.dp)) {
-                        OutlinedTextField(
-                            value = titleInput,
-                            onValueChange = { titleInput = it },
-                            placeholder = { Text("Nome da música (opcional)") },
-                            singleLine = true,
-                            leadingIcon = {
-                                Icon(Icons.Default.Edit, contentDescription = null)
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            val trimmed = urlInput.trim()
-                            if (trimmed.isNotBlank()) {
-                                viewModel.startDownload(
-                                    url = trimmed,
-                                    title = titleInput.trim().ifEmpty { null }
-                                )
-                                urlInput = ""
-                                titleInput = ""
-                                selectedTab = 1 // Switch to in-progress tab
-                            }
-                        },
-                        enabled = urlInput.isNotBlank(),
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Iniciar Download")
-                    }
-
-                    OutlinedButton(
-                        onClick = { launcher.launch(arrayOf("audio/*")) }
-                    ) {
-                        Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Importar")
-                    }
-                }
-            }
-        }
-
-        // 2. QUICK 1-TAP DOWNLOAD PRESETS
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-            Text(
-                text = "SUGESTÕES DE ÁUDIO PARA TESTAR",
-                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.2.sp),
-                color = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(sampleTracks) { (title, artist, url) ->
-                    Surface(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable {
-                                viewModel.startDownload(url = url, title = title, artist = artist)
-                                selectedTab = 1
-                            },
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.DownloadForOffline,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Column {
-                                Text(
-                                    text = title,
-                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
-                                )
-                                Text(
-                                    text = artist,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. TABS: CONCLUÍDOS / EM ANDAMENTO
+        // 1. TABS
         TabRow(
             selectedTabIndex = selectedTab,
             containerColor = MaterialTheme.colorScheme.background,
@@ -245,14 +75,14 @@ fun DownloadsScreen(viewModel: MusicViewModel) {
             Tab(
                 selected = selectedTab == 0,
                 onClick = { selectedTab = 0 },
-                text = { Text("Concluídos (${downloadedSongs.size})") }
+                text = { Text("Biblioteca (${downloadedSongs.size})") }
             )
             Tab(
                 selected = selectedTab == 1,
                 onClick = { selectedTab = 1 },
                 text = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Em Andamento")
+                        Text("Ativos")
                         if (activeDownloads.isNotEmpty()) {
                             Spacer(modifier = Modifier.width(6.dp))
                             Badge(containerColor = MaterialTheme.colorScheme.primary) {
@@ -262,99 +92,312 @@ fun DownloadsScreen(viewModel: MusicViewModel) {
                     }
                 }
             )
+            Tab(
+                selected = selectedTab == 2,
+                onClick = { selectedTab = 2 },
+                text = { Text("Pesquisar IA") }
+            )
         }
 
-        // 4. TAB CONTENT
-        if (selectedTab == 1) {
-            // Active or paused downloads
-            if (activeDownloads.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.CloudDone,
-                            contentDescription = null,
-                            modifier = Modifier.size(54.dp),
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "Nenhum download em andamento",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Cole uma URL de áudio acima para iniciar um download.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+        // 2. TAB CONTENT
+        when (selectedTab) {
+            0 -> {
+                // Completed downloaded and imported songs
+                if (downloadedSongs.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.FileDownloadOff,
+                                contentDescription = null,
+                                modifier = Modifier.size(54.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "Nenhuma música baixada",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Use a aba 'Pesquisar IA' ou cole um link direto.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    items(activeDownloads, key = { it.id }) { item ->
-                        ActiveDownloadCard(
-                            item = item,
-                            onPause = { viewModel.pauseDownload(item.id) },
-                            onResume = { viewModel.resumeDownload(item.id) },
-                            onCancel = { viewModel.cancelDownload(item.id) }
-                        )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 120.dp)
+                    ) {
+                        items(downloadedSongs, key = { it.id }) { song ->
+                            SongListItem(
+                                song = song,
+                                onClick = { viewModel.playSong(song) },
+                                onFavoriteClick = { viewModel.toggleFavorite(song) },
+                                onMoreClick = { /* More options */ }
+                            )
+                        }
                     }
                 }
             }
-        } else {
-            // Completed downloaded and imported songs
-            if (downloadedSongs.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.FileDownloadOff,
-                            contentDescription = null,
-                            modifier = Modifier.size(54.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "Nenhuma música baixada",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Baixe por link direto ou selecione arquivos de áudio do dispositivo.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+            1 -> {
+                // Active downloads + Direct Link Input
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // URL Input Card
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Baixar por Link Direto",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = urlInput,
+                                onValueChange = { urlInput = it },
+                                placeholder = { Text("Cole o link direto (MP3, FLAC, WAV...)") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            
+                            AnimatedVisibility(visible = showAdvancedInput) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = titleInput,
+                                    onValueChange = { titleInput = it },
+                                    placeholder = { Text("Nome da música (opcional)") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        val trimmed = urlInput.trim()
+                                        if (trimmed.isNotBlank()) {
+                                            viewModel.startDownload(trimmed, titleInput.ifBlank { null })
+                                            urlInput = ""
+                                            titleInput = ""
+                                        }
+                                    },
+                                    enabled = urlInput.isNotBlank(),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Baixar Link")
+                                }
+                                IconButton(onClick = { showAdvancedInput = !showAdvancedInput }) {
+                                    Icon(if (showAdvancedInput) Icons.Default.ExpandLess else Icons.Default.Tune, contentDescription = null)
+                                }
+                                IconButton(onClick = { launcher.launch(arrayOf("audio/*")) }) {
+                                    Icon(Icons.Default.UploadFile, contentDescription = "Importar local")
+                                }
+                            }
+                        }
+                    }
+
+                    if (activeDownloads.isEmpty()) {
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Text("Nenhum download ativo", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 16.dp)
+                        ) {
+                            items(activeDownloads, key = { it.id }) { item ->
+                                ActiveDownloadCard(
+                                    item = item,
+                                    onPause = { viewModel.pauseDownload(item.id) },
+                                    onResume = { viewModel.resumeDownload(item.id) },
+                                    onCancel = { viewModel.cancelDownload(item.id) }
+                                )
+                            }
+                        }
                     }
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 120.dp)
-                ) {
-                    items(downloadedSongs, key = { it.id }) { song ->
-                        SongListItem(
-                            song = song,
-                            onClick = { viewModel.playSong(song) },
-                            onFavoriteClick = { viewModel.toggleFavorite(song) },
-                            onMoreClick = { /* More options */ }
-                        )
+            }
+            2 -> {
+                // Internet Archive Search
+                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                    OutlinedTextField(
+                        value = searchIAInput,
+                        onValueChange = { searchIAInput = it },
+                        placeholder = { Text("Buscar no Internet Archive...") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        trailingIcon = {
+                            IconButton(onClick = { archiveViewModel.search(searchIAInput) }) {
+                                Icon(Icons.Default.Search, contentDescription = "Buscar")
+                            }
+                        },
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Box(modifier = Modifier.weight(1f)) {
+                        when (archiveState) {
+                            is ArchiveUiState.Loading -> {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator()
+                                }
+                            }
+                            is ArchiveUiState.SearchSuccess -> {
+                                val docs = (archiveState as ArchiveUiState.SearchSuccess).docs
+                                if (docs.isEmpty()) {
+                                    Text("Nenhum resultado encontrado.", modifier = Modifier.align(Alignment.Center))
+                                } else {
+                                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        items(docs) { doc ->
+                                            ArchiveDocItem(
+                                                doc = doc,
+                                                onClick = { archiveViewModel.getMetadata(doc.identifier) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            is ArchiveUiState.MetadataSuccess -> {
+                                val state = archiveState as ArchiveUiState.MetadataSuccess
+                                MetadataDialog(
+                                    metadata = state.metadata,
+                                    files = state.files,
+                                    isAuthorized = archiveViewModel.isLicenseAuthorized(state.metadata.licenseUrl),
+                                    onDownload = { file ->
+                                        val url = "https://archive.org/download/${state.metadata.identifier}/${file.name}"
+                                        viewModel.startDownload(
+                                            url = url,
+                                            title = state.metadata.title ?: file.name,
+                                            artist = state.metadata.creator ?: "Internet Archive"
+                                        )
+                                        selectedTab = 1
+                                        archiveViewModel.resetState()
+                                    },
+                                    onDismiss = { archiveViewModel.resetState() }
+                                )
+                            }
+                            is ArchiveUiState.Error -> {
+                                Text("Erro: ${(archiveState as ArchiveUiState.Error).message}", color = MaterialTheme.colorScheme.error)
+                            }
+                            else -> {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(imageVector = Icons.Default.HistoryEdu, contentDescription = null, size = 48.dp, tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("Acervo Público Global", style = MaterialTheme.typography.titleMedium)
+                                    Text("Pesquise por áudios de domínio público e licenciados.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+fun ArchiveDocItem(doc: ArchiveDoc, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    ) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.AudioFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(text = doc.title ?: "Sem título", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(text = doc.creator ?: "Autor desconhecido", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+fun MetadataDialog(
+    metadata: ArchiveMetadata,
+    files: List<ArchiveFile>,
+    isAuthorized: Boolean,
+    onDownload: (ArchiveFile) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(metadata.title ?: "Detalhes do Item") },
+        text = {
+            Column {
+                Text("Autor: ${metadata.creator ?: "Desconhecido"}", style = MaterialTheme.typography.bodySmall)
+                Text("Licença: ${if (isAuthorized) "Autorizada (Domínio Público / CC)" else "Restrita ou Desconhecida"}", 
+                    color = if (isAuthorized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                if (files.isEmpty()) {
+                    Text("Nenhum arquivo de áudio compatível encontrado.")
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Arquivos disponíveis:", style = MaterialTheme.typography.labelLarge)
+                        if (files.size > 1 && isAuthorized) {
+                            TextButton(onClick = { files.forEach { onDownload(it) } }) {
+                                Text("Baixar Tudo", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                    LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                        items(files) { file ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(file.name, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text("${file.format} • ${file.size?.toLongOrNull()?.let { it / 1024 / 1024 } ?: "?"} MB", style = MaterialTheme.typography.labelSmall)
+                                }
+                                IconButton(
+                                    onClick = { onDownload(file) },
+                                    enabled = isAuthorized
+                                ) {
+                                    Icon(Icons.Default.Download, contentDescription = "Baixar", tint = if (isAuthorized) MaterialTheme.colorScheme.primary else Color.Gray)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Fechar") }
+        }
+    )
 }
 
 @Composable
@@ -435,4 +478,9 @@ fun ActiveDownloadCard(
             }
         }
     }
+}
+
+@Composable
+private fun Icon(imageVector: androidx.compose.ui.graphics.vector.ImageVector, contentDescription: String?, size: androidx.compose.ui.unit.Dp, tint: Color) {
+    androidx.compose.material3.Icon(imageVector, contentDescription, modifier = Modifier.size(size), tint = tint)
 }
