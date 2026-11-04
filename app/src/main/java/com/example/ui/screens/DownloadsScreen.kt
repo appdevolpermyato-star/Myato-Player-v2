@@ -1,15 +1,18 @@
 package com.example.ui.screens
 
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -19,10 +22,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.data.model.DownloadItem
 import com.example.data.model.DownloadStatus
 import com.example.data.model.Song
@@ -33,21 +39,64 @@ import com.example.ui.archive.ArchiveUiState
 import com.example.ui.archive.ArchiveViewModel
 import com.example.ui.music.MusicViewModel
 import com.example.ui.music.PlaybackState
+import com.example.ui.util.LinkClassifier
+import com.example.ui.util.RecognizedLink
+import com.example.ui.youtube.YouTubePlaylistInfo
+import com.example.ui.youtube.YouTubePlaylistItemState
+import com.example.ui.youtube.YouTubeTrackInfo
+import com.example.ui.youtube.YouTubeUiState
+import com.example.ui.youtube.YouTubeViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewModel) {
+fun DownloadsScreen(
+    viewModel: MusicViewModel,
+    archiveViewModel: ArchiveViewModel,
+    youTubeViewModel: YouTubeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
     val downloads by viewModel.allDownloads.collectAsState()
     val downloadedSongs by viewModel.downloadedSongs.collectAsState()
     val archiveState by archiveViewModel.uiState.collectAsState()
+    val youTubeState by youTubeViewModel.uiState.collectAsState()
     val playbackState by viewModel.playbackState.collectAsState()
+    val customApiKey by youTubeViewModel.customApiKey.collectAsState()
 
     var urlInput by remember { mutableStateOf("") }
     var titleInput by remember { mutableStateOf("") }
     var searchIAInput by remember { mutableStateOf("") }
     var showAdvancedInput by remember { mutableStateOf(false) }
+    var showApiKeyDialog by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Biblioteca, 1: Ativos, 2: Pesquisar IA
     var inputErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    var pendingTrackForLocalAudio by remember { mutableStateOf<YouTubeTrackInfo?>(null) }
+
+    // Launcher for linking a local audio file to a YouTube track metadata
+    val linkAudioLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        val track = pendingTrackForLocalAudio
+        if (uri != null && track != null) {
+            coroutineScope.launch {
+                try {
+                    val imported = youTubeViewModel.linkLocalAudioToTrack(
+                        track = track,
+                        audioUri = uri,
+                        albumName = "Importados do YouTube",
+                        musicDao = viewModel.repository.musicDao
+                    )
+                    Toast.makeText(context, "Áudio vinculado com sucesso: ${imported.title}", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Erro ao vincular áudio: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+                pendingTrackForLocalAudio = null
+            }
+        }
+    }
 
     // Trigger repair on entering screen to verify existing and old downloads
     LaunchedEffect(Unit) {
@@ -62,7 +111,7 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
         downloads.filter { it.status == DownloadStatus.FAILED }
     }
 
-    val launcher = rememberLauncherForActivityResult(
+    val multiFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris: List<Uri> ->
         if (uris.isNotEmpty()) {
@@ -70,12 +119,14 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
         }
     }
 
+    val recognizedLink = remember(urlInput) { LinkClassifier.classify(urlInput) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // HEADER WITH REPAIR ACTION
+        // HEADER WITH REPAIR AND API KEY ACTIONS
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -84,20 +135,33 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Downloads & Internet Archive",
+                text = "Downloads & Importações",
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onBackground
             )
-            IconButton(
-                onClick = { viewModel.repairExistingDownloads() },
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Build,
-                    contentDescription = "Verificar e Reparar Arquivos",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = { showApiKeyDialog = true },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Key,
+                        contentDescription = "Chave YouTube API",
+                        tint = if (customApiKey != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                IconButton(
+                    onClick = { viewModel.repairExistingDownloads() },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Build,
+                        contentDescription = "Verificar e Reparar Arquivos",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
 
@@ -130,7 +194,7 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
             }
         }
 
-        // 1. TABS
+        // 1. TABS: Biblioteca | Ativos | Pesquisar IA
         TabRow(
             selectedTabIndex = selectedTab,
             containerColor = MaterialTheme.colorScheme.background,
@@ -167,7 +231,7 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
         // 2. TAB CONTENT
         when (selectedTab) {
             0 -> {
-                // Completed downloaded songs in library
+                // Completed downloaded/imported songs in library
                 if (downloadedSongs.isEmpty()) {
                     Box(
                         modifier = Modifier
@@ -184,12 +248,12 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Nenhuma música baixada",
+                                text = "Nenhuma música baixada ou importada",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Pesquise no Internet Archive ou insira um link direto para baixar áudios autorizados.",
+                                text = "Cole links de vídeos/playlists do YouTube, consulte o Internet Archive ou adicione arquivos locais.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -212,9 +276,9 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                 }
             }
             1 -> {
-                // Active downloads & Direct Link Input
+                // Active downloads & Link / YouTube Importer
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // Direct Link Input Card
+                    // Unified Link Recognition & Import Card
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -223,11 +287,53 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                text = "Baixar por Link Direto ou Item",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Importar & Baixar Músicas",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+
+                                // Live Link Recognition Badge
+                                if (urlInput.isNotBlank()) {
+                                    val (badgeText, badgeColor, badgeIcon) = when (recognizedLink) {
+                                        is RecognizedLink.YouTubeVideo -> Triple("YouTube Vídeo", Color(0xFFFF5252), Icons.Default.PlayCircleOutline)
+                                        is RecognizedLink.YouTubePlaylist -> Triple("YouTube Playlist", Color(0xFFFF7043), Icons.Default.PlaylistPlay)
+                                        is RecognizedLink.ArchiveItem -> Triple("Internet Archive", MaterialTheme.colorScheme.primary, Icons.Default.HistoryEdu)
+                                        is RecognizedLink.DirectAudio -> Triple("Áudio Direto (${recognizedLink.extension})", Color(0xFF00E676), Icons.Default.AudioFile)
+                                        is RecognizedLink.Unknown -> Triple("Texto / Busca", MaterialTheme.colorScheme.onSurfaceVariant, Icons.Default.Search)
+                                    }
+
+                                    Surface(
+                                        color = badgeColor.copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.4f))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = badgeIcon,
+                                                contentDescription = null,
+                                                tint = badgeColor,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = badgeText,
+                                                color = badgeColor,
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
                             Spacer(modifier = Modifier.height(8.dp))
                             OutlinedTextField(
                                 value = urlInput,
@@ -235,7 +341,7 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                                     urlInput = it
                                     inputErrorMessage = null
                                 },
-                                placeholder = { Text("Cole o link direto (.mp3, .flac) ou ID do Internet Archive") },
+                                placeholder = { Text("Cole link do YouTube, playlist, Archive.org ou .mp3") },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp)
@@ -255,7 +361,7 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                                     OutlinedTextField(
                                         value = titleInput,
                                         onValueChange = { titleInput = it },
-                                        placeholder = { Text("Nome da música (opcional)") },
+                                        placeholder = { Text("Nome da música (opcional para link direto)") },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(12.dp)
@@ -273,43 +379,56 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                                     onClick = {
                                         val trimmed = urlInput.trim()
                                         if (trimmed.isNotBlank()) {
-                                            // Check if user entered an external service link (e.g. YouTube)
-                                            if (archiveViewModel.isExternalServiceUrl(trimmed)) {
-                                                inputErrorMessage = "Links de serviços como YouTube ou Spotify não são compatíveis. O Myato Player realiza pesquisas e downloads de músicas diretamente do acervo público e legal do Internet Archive (archive.org)."
-                                                return@Button
-                                            }
-
-                                            // Check if user entered an Internet Archive link or identifier
-                                            val archiveId = archiveViewModel.extractArchiveIdentifier(trimmed)
-                                            val isDirectAudioUrl = trimmed.endsWith(".mp3", ignoreCase = true) ||
-                                                    trimmed.endsWith(".flac", ignoreCase = true) ||
-                                                    trimmed.endsWith(".wav", ignoreCase = true) ||
-                                                    trimmed.endsWith(".ogg", ignoreCase = true) ||
-                                                    trimmed.endsWith(".m4a", ignoreCase = true) ||
-                                                    trimmed.endsWith(".aac", ignoreCase = true)
-
-                                            if (archiveId != null && !isDirectAudioUrl) {
-                                                // It is an Archive item, identifier or details URL! Resolve via metadata:
-                                                selectedTab = 2 // Switch to Archive search/details tab
-                                                archiveViewModel.getMetadata(archiveId)
-                                                urlInput = ""
-                                                titleInput = ""
-                                                inputErrorMessage = null
-                                            } else {
-                                                viewModel.startDownload(
-                                                    url = trimmed,
-                                                    title = titleInput.ifBlank { null }
-                                                )
-                                                urlInput = ""
-                                                titleInput = ""
-                                                inputErrorMessage = null
+                                            when (recognizedLink) {
+                                                is RecognizedLink.YouTubeVideo -> {
+                                                    youTubeViewModel.fetchVideoDetails(recognizedLink.videoId, trimmed)
+                                                    urlInput = ""
+                                                    inputErrorMessage = null
+                                                }
+                                                is RecognizedLink.YouTubePlaylist -> {
+                                                    youTubeViewModel.fetchPlaylistDetails(recognizedLink.playlistId, trimmed)
+                                                    urlInput = ""
+                                                    inputErrorMessage = null
+                                                }
+                                                is RecognizedLink.ArchiveItem -> {
+                                                    selectedTab = 2 // Switch to Archive search/details tab
+                                                    archiveViewModel.getMetadata(recognizedLink.identifier)
+                                                    urlInput = ""
+                                                    inputErrorMessage = null
+                                                }
+                                                is RecognizedLink.DirectAudio -> {
+                                                    viewModel.startDownload(
+                                                        url = trimmed,
+                                                        title = titleInput.ifBlank { null }
+                                                    )
+                                                    urlInput = ""
+                                                    inputErrorMessage = null
+                                                }
+                                                is RecognizedLink.Unknown -> {
+                                                    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                                                        viewModel.startDownload(url = trimmed, title = titleInput.ifBlank { null })
+                                                        urlInput = ""
+                                                    } else {
+                                                        // Search Internet Archive
+                                                        selectedTab = 2
+                                                        archiveViewModel.search(trimmed)
+                                                        urlInput = ""
+                                                    }
+                                                }
                                             }
                                         }
                                     },
                                     enabled = urlInput.isNotBlank(),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Text("Baixar")
+                                    val buttonLabel = when (recognizedLink) {
+                                        is RecognizedLink.YouTubeVideo -> "Consultar Vídeo"
+                                        is RecognizedLink.YouTubePlaylist -> "Consultar Playlist"
+                                        is RecognizedLink.ArchiveItem -> "Consultar Archive"
+                                        is RecognizedLink.DirectAudio -> "Baixar Áudio"
+                                        else -> "Identificar & Buscar"
+                                    }
+                                    Text(buttonLabel)
                                 }
                                 IconButton(onClick = { showAdvancedInput = !showAdvancedInput }) {
                                     Icon(
@@ -317,7 +436,7 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                                         contentDescription = "Personalizar"
                                     )
                                 }
-                                IconButton(onClick = { launcher.launch(arrayOf("audio/*")) }) {
+                                IconButton(onClick = { multiFileLauncher.launch(arrayOf("audio/*")) }) {
                                     Icon(
                                         Icons.Default.UploadFile,
                                         contentDescription = "Importar arquivos do celular"
@@ -359,7 +478,7 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                "Nenhum download ativo no momento.",
+                                "Nenhum download em andamento.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyMedium
                             )
@@ -531,6 +650,536 @@ fun DownloadsScreen(viewModel: MusicViewModel, archiveViewModel: ArchiveViewMode
             }
         }
     }
+
+    // --- DIALOGS FOR YOUTUBE SYSTEM ---
+
+    // 1. YouTube Loading Dialog
+    if (youTubeState is YouTubeUiState.Loading) {
+        val msg = (youTubeState as YouTubeUiState.Loading).message
+        AlertDialog(
+            onDismissRequest = { /* Loading in progress */ },
+            confirmButton = {},
+            title = { Text("Consultando YouTube") },
+            text = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(text = msg, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        )
+    }
+
+    // 2. YouTube Video Inspector Dialog
+    if (youTubeState is YouTubeUiState.VideoLoaded) {
+        val state = youTubeState as YouTubeUiState.VideoLoaded
+        YouTubeVideoInspectorDialog(
+            track = state.track,
+            archiveMatches = state.archiveMatches,
+            isSearchingArchive = state.isSearchingArchive,
+            onDismiss = { youTubeViewModel.resetState() },
+            onLinkLocalAudio = {
+                pendingTrackForLocalAudio = state.track
+                linkAudioLauncher.launch(arrayOf("audio/*"))
+            },
+            onDownloadArchiveMatch = { doc ->
+                archiveViewModel.getMetadata(doc.identifier)
+                youTubeViewModel.resetState()
+                selectedTab = 2
+            }
+        )
+    }
+
+    // 3. YouTube Playlist Inspector Dialog
+    if (youTubeState is YouTubeUiState.PlaylistLoaded) {
+        val state = youTubeState as YouTubeUiState.PlaylistLoaded
+        YouTubePlaylistInspectorDialog(
+            playlist = state.playlist,
+            items = state.items,
+            isSearchingAll = state.isSearchingAll,
+            statusMessage = state.statusMessage,
+            onToggleItem = { youTubeViewModel.toggleItemSelection(it) },
+            onSelectAll = { youTubeViewModel.selectAll(it) },
+            onBatchSearchArchive = { youTubeViewModel.batchSearchAuthorizedSources() },
+            onCreateLocalPlaylist = {
+                coroutineScope.launch {
+                    try {
+                        val selectedTracks = state.items.filter { it.isSelected }.map { it.track }
+                        // Create playlist in Room
+                        val plId = youTubeViewModel.createLocalPlaylistFromYouTube(
+                            musicDao = viewModel.repository.musicDao,
+                            playlistInfo = state.playlist,
+                            itemsToInclude = emptyList() // Will be populated as user downloads/links
+                        )
+                        Toast.makeText(context, "Playlist '${state.playlist.title}' criada no Myato com sucesso!", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Erro ao criar playlist: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onLinkItemAudio = { track ->
+                pendingTrackForLocalAudio = track
+                linkAudioLauncher.launch(arrayOf("audio/*"))
+            },
+            onDownloadItemMatch = { track, doc ->
+                archiveViewModel.getMetadata(doc.identifier)
+                youTubeViewModel.resetState()
+                selectedTab = 2
+            },
+            onDismiss = { youTubeViewModel.resetState() }
+        )
+    }
+
+    // 4. YouTube Error Dialog
+    if (youTubeState is YouTubeUiState.Error) {
+        val err = (youTubeState as YouTubeUiState.Error).message
+        AlertDialog(
+            onDismissRequest = { youTubeViewModel.resetState() },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Consulta do YouTube")
+                }
+            },
+            text = {
+                Column {
+                    Text(text = err, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Aviso: A YouTube Data API v3 é utilizada para identificação de títulos, canais, miniaturas e playlists. Ela não fornece arquivos MP3 diretamente.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { youTubeViewModel.resetState() }) {
+                    Text("Entendi")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    youTubeViewModel.resetState()
+                    showApiKeyDialog = true
+                }) {
+                    Text("Chave API")
+                }
+            }
+        )
+    }
+
+    // 5. YouTube API Key Settings Dialog
+    if (showApiKeyDialog) {
+        YouTubeApiKeyDialog(
+            currentKey = customApiKey ?: "",
+            onSave = {
+                youTubeViewModel.setCustomApiKey(it)
+                showApiKeyDialog = false
+                Toast.makeText(context, if (it.isNotBlank()) "Chave da YouTube API salva!" else "Chave redefinida para o padrão", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showApiKeyDialog = false }
+        )
+    }
+}
+
+@Composable
+fun YouTubeVideoInspectorDialog(
+    track: YouTubeTrackInfo,
+    archiveMatches: List<ArchiveDoc>,
+    isSearchingArchive: Boolean,
+    onDismiss: () -> Unit,
+    onLinkLocalAudio: () -> Unit,
+    onDownloadArchiveMatch: (ArchiveDoc) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    color = Color(0xFFFF5252).copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayCircleFilled,
+                        contentDescription = null,
+                        tint = Color(0xFFFF5252),
+                        modifier = Modifier.padding(4.dp).size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Vídeo do YouTube",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Video Card: Thumbnail + Info
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (!track.thumbnailUrl.isNullOrEmpty()) {
+                            AsyncImage(
+                                model = track.thumbnailUrl,
+                                contentDescription = track.title,
+                                modifier = Modifier
+                                    .size(72.dp, 54.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = track.title,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = track.artist,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Official Notice
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.VerifiedUser,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "A YouTube API fornece metadados e capas. Para reproduzir offline, selecione uma fonte de áudio autorizada:",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Option 1: Internet Archive Open Recording
+                Text(
+                    text = "Opção 1: Gravações no Internet Archive",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+
+                if (isSearchingArchive) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Buscando gravações livres correspondentes...", style = MaterialTheme.typography.bodySmall)
+                    }
+                } else if (archiveMatches.isEmpty()) {
+                    Text(
+                        text = "Nenhuma gravação aberta encontrada automaticamente com esse nome.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 160.dp)) {
+                        items(archiveMatches) { doc ->
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 3.dp)
+                                    .clickable { onDownloadArchiveMatch(doc) },
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surface
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = doc.title ?: doc.identifier,
+                                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = doc.creator ?: "Internet Archive",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.Download,
+                                        contentDescription = "Baixar",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Option 2: Link local device file
+                Text(
+                    text = "Opção 2: Vincular Arquivo do Celular",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedButton(
+                    onClick = onLinkLocalAudio,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Selecionar Arquivo de Áudio Local (.mp3, .flac)")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Fechar")
+            }
+        }
+    )
+}
+
+@Composable
+fun YouTubePlaylistInspectorDialog(
+    playlist: YouTubePlaylistInfo,
+    items: List<YouTubePlaylistItemState>,
+    isSearchingAll: Boolean,
+    statusMessage: String?,
+    onToggleItem: (String) -> Unit,
+    onSelectAll: (Boolean) -> Unit,
+    onBatchSearchArchive: () -> Unit,
+    onCreateLocalPlaylist: () -> Unit,
+    onLinkItemAudio: (YouTubeTrackInfo) -> Unit,
+    onDownloadItemMatch: (YouTubeTrackInfo, ArchiveDoc) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val selectedCount = items.count { it.isSelected }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    color = Color(0xFFFF7043).copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlaylistPlay,
+                        contentDescription = null,
+                        tint = Color(0xFFFF7043),
+                        modifier = Modifier.padding(4.dp).size(22.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = playlist.title,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${playlist.channelTitle} • ${items.size} vídeos",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Header Action Bar
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = selectedCount == items.size && items.isNotEmpty(),
+                            onCheckedChange = { onSelectAll(it) }
+                        )
+                        Text(
+                            text = "Todas ($selectedCount/${items.size})",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+
+                    Row {
+                        IconButton(onClick = onBatchSearchArchive, enabled = !isSearchingAll) {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = "Buscar no Archive",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        IconButton(onClick = onCreateLocalPlaylist) {
+                            Icon(
+                                Icons.Default.PlaylistAdd,
+                                contentDescription = "Salvar Playlist no Myato",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
+                if (!statusMessage.isNullOrBlank()) {
+                    Text(
+                        text = statusMessage,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+                }
+
+                // Track List
+                LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                    items(items, key = { it.track.videoId }) { entry ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 3.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (entry.isSelected) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = entry.isSelected,
+                                    onCheckedChange = { onToggleItem(entry.track.videoId) }
+                                )
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = entry.track.title,
+                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = entry.statusText,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (entry.authorizedMatch != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                if (entry.authorizedMatch != null) {
+                                    IconButton(onClick = { onDownloadItemMatch(entry.track, entry.authorizedMatch) }) {
+                                        Icon(
+                                            Icons.Default.Download,
+                                            contentDescription = "Baixar",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                } else {
+                                    IconButton(onClick = { onLinkItemAudio(entry.track) }) {
+                                        Icon(
+                                            Icons.Default.AttachFile,
+                                            contentDescription = "Vincular",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onCreateLocalPlaylist) {
+                Text("Criar Playlist no Myato")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Fechar")
+            }
+        }
+    )
+}
+
+@Composable
+fun YouTubeApiKeyDialog(
+    currentKey: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var keyInput by remember { mutableStateOf(currentKey) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Configurar YouTube Data API v3") },
+        text = {
+            Column {
+                Text(
+                    text = "A YouTube Data API v3 é utilizada para consultar metadados de vídeos e playlists completas.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "• Vídeos individuais funcionam sem chave (via oEmbed público).\n• Playlists completas requerem uma Chave de API gratuita do Google Cloud Console.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = keyInput,
+                    onValueChange = { keyInput = it },
+                    label = { Text("Chave da API (Google Cloud)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onSave(keyInput) }) {
+                Text("Salvar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        }
+    )
 }
 
 @Composable

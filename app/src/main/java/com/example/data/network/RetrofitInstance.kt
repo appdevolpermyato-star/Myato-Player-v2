@@ -34,4 +34,22 @@ object RetrofitInstance {
             .build()
             .create(ArchiveApiService::class.java)
     }
+
+    val youtubeApi: YouTubeApiService by lazy {
+        Retrofit.Builder()
+            .baseUrl(YouTubeApiService.BASE_URL)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .client(client)
+            .build()
+            .create(YouTubeApiService::class.java)
+    }
+
+    val youtubeOEmbedApi: YouTubeOEmbedService by lazy {
+        Retrofit.Builder()
+            .baseUrl(YouTubeOEmbedService.BASE_URL)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .client(client)
+            .build()
+            .create(YouTubeOEmbedService::class.java)
+    }
 }

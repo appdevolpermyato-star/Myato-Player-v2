@@ -331,6 +331,12 @@ class MusicViewModel(
         }
     }
 
+    fun insertSong(song: Song) {
+        viewModelScope.launch {
+            repository.insertSong(song)
+        }
+    }
+
     // Downloader controls
     fun startDownload(
         url: String,

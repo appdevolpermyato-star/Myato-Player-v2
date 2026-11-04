@@ -22,12 +22,15 @@ import java.util.UUID
 
 class MusicRepository(
     private val context: Context,
-    private val musicDao: MusicDao
+    val musicDao: MusicDao
 ) {
     val allSongs: Flow<List<Song>> = musicDao.getAllSongs()
     val favoriteSongs: Flow<List<Song>> = musicDao.getFavoriteSongs()
     val allPlaylists: Flow<List<Playlist>> = musicDao.getAllPlaylists()
     val recentlyPlayedSongs: Flow<List<Song>> = musicDao.getRecentlyPlayedSongs(15)
+
+    suspend fun insertSong(song: Song) = musicDao.insertSong(song)
+    suspend fun insertSongs(songs: List<Song>) = musicDao.insertSongs(songs)
     val mostPlayedSongs: Flow<List<Song>> = musicDao.getMostPlayedSongs(15)
     val downloadedSongs: Flow<List<Song>> = musicDao.getDownloadedSongs()
     val allDownloads: Flow<List<DownloadItem>> = musicDao.getAllDownloads()

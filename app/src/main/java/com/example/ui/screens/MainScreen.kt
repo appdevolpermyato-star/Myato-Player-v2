@@ -50,6 +50,7 @@ fun MainScreen(
     musicViewModel: MusicViewModel,
     authViewModel: AuthViewModel,
     archiveViewModel: ArchiveViewModel,
+    youTubeViewModel: com.example.ui.youtube.YouTubeViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     onRequestPermissions: () -> Unit = {}
 ) {
     val navController = rememberNavController()
@@ -213,7 +214,8 @@ fun MainScreen(
                 composable(Screen.Downloads.route) {
                     DownloadsScreen(
                         viewModel = musicViewModel,
-                        archiveViewModel = archiveViewModel
+                        archiveViewModel = archiveViewModel,
+                        youTubeViewModel = youTubeViewModel
                     )
                 }
                 composable(Screen.Playlists.route) {

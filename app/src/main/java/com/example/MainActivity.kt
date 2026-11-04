@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity() {
                         authViewModel.init(this@MainActivity)
                     }
                     val archiveViewModel: ArchiveViewModel = viewModel()
+                    val youTubeViewModel: com.example.ui.youtube.YouTubeViewModel = viewModel()
                     val musicViewModel: MusicViewModel = viewModel(
                         factory = object : androidx.lifecycle.ViewModelProvider.Factory {
                             override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
@@ -107,6 +108,7 @@ class MainActivity : ComponentActivity() {
                                 musicViewModel = musicViewModel,
                                 authViewModel = authViewModel,
                                 archiveViewModel = archiveViewModel,
+                                youTubeViewModel = youTubeViewModel,
                                 onRequestPermissions = {
                                     permissionLauncher.launch(PermissionHelper.getStartupPermissions())
                                 }
