@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile metadata for cloud sync.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The unique ID of the user." },
+        "email": { "type": "string", "description": "User email address." },
+        "displayName": { "type": "string", "description": "User display name." },
+        "photoUrl": { "type": "string", "description": "URL to user profile photo." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp when the user was created." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Timestamp when the user was last updated." }
+      },
+      "required": ["userId", "email", "createdAt"]
+    },
+    "Playlist": {
+      "title": "Playlist",
+      "description": "Metadata for a user's playlist.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The unique ID of the playlist." },
+        "userId": { "type": "string", "description": "The ID of the owner." },
+        "name": { "type": "string", "description": "Name of the playlist." },
+        "description": { "type": "string", "description": "Optional description." },
+        "coverUrl": { "type": "string", "description": "URL to the playlist cover image." },
+        "songCount": { "type": "integer", "description": "Number of songs in the playlist." },
+        "totalDuration": { "type": "integer", "description": "Total duration in seconds." },
+        "isPublic": { "type": "boolean", "description": "Whether the playlist is public." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "name", "createdAt"]
+    },
+    "Favorite": {
+      "title": "Favorite",
+      "description": "Metadata for a song favorited by the user.",
+      "type": "object",
+      "properties": {
+        "songId": { "type": "string", "description": "Unique song identifier (local or remote)." },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "artist": { "type": "string" },
+        "album": { "type": "string" },
+        "duration": { "type": "integer" },
+        "coverUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["songId", "userId", "title", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Root user profile document."
+    },
+    "/users/{userId}/playlists/{playlistId}": {
+      "schema": "Playlist",
+      "description": "User's playlists collection."
+    },
+    "/users/{userId}/favorites/{songId}": {
+      "schema": "Favorite",
+      "description": "User's favorite songs metadata."
+    }
+  }
+}

@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Myato Player</string>
+    <string name="playback_notification_channel_name">Myato Player Reprodução</string>
+    <string name="playback_notification_channel_desc">Exibe controles e capa da música na barra de notificações e tela de bloqueio</string>
+    <string name="permission_audio_title">Acesso às Músicas</string>
+    <string name="permission_audio_desc">O Myato Player precisa de permissão para ler seus arquivos de áudio locais (MP3, FLAC, etc.) e organizar sua biblioteca.</string>
+    <string name="permission_grant">Conceder Permissão</string>
+</resources>

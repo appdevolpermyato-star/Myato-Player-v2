@@ -1,0 +1,109 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    // --- Validation Helpers ---
+
+    function isValidUser(data) {
+      return data.userId == request.auth.uid &&
+             data.email is string &&
+             (!('displayName' in data) || data.displayName is string) &&
+             (!('photoUrl' in data) || data.photoUrl is string);
+    }
+
+    function isValidPlaylist(data, userId) {
+      return data.userId == userId &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             (!('description' in data) || data.description is string) &&
+             (!('coverUrl' in data) || data.coverUrl is string) &&
+             (!('songCount' in data) || data.songCount is int) &&
+             (!('totalDuration' in data) || data.totalDuration is int) &&
+             (!('isPublic' in data) || data.isPublic is bool);
+    }
+
+    function isValidFavorite(data, userId) {
+      return data.userId == userId &&
+             data.songId is string &&
+             data.title is string &&
+             (!('artist' in data) || data.artist is string) &&
+             (!('album' in data) || data.album is string) &&
+             (!('duration' in data) || data.duration is int) &&
+             (!('coverUrl' in data) || data.coverUrl is string);
+    }
+
+    // --- Collection Rules ---
+
+    // Users
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if false; // Users cannot be listed
+
+      allow create: if isOwner(userId) &&
+                       incoming().keys().hasAll(['userId', 'email', 'createdAt']) &&
+                       incoming().createdAt is timestamp &&
+                       incoming().createdAt <= request.time &&
+                       isValidUser(incoming());
+
+      allow update: if isOwner(userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidUser(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['email', 'displayName', 'photoUrl', 'updatedAt']);
+      
+      allow delete: if isOwner(userId);
+
+      // Playlists Subcollection
+      match /playlists/{playlistId} {
+        allow get, list: if isOwner(userId);
+        
+        allow create: if isOwner(userId) &&
+                         isValidId(playlistId) &&
+                         incoming().keys().hasAll(['id', 'userId', 'name', 'createdAt']) &&
+                         incoming().createdAt is timestamp &&
+                         incoming().createdAt <= request.time &&
+                         isValidPlaylist(incoming(), userId);
+
+        allow update: if isOwner(userId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().id == existing().id &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidPlaylist(incoming(), userId) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'coverUrl', 'songCount', 'totalDuration', 'isPublic', 'updatedAt']);
+
+        allow delete: if isOwner(userId);
+      }
+
+      // Favorites Subcollection
+      match /favorites/{songId} {
+        allow get, list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(songId) &&
+                         incoming().keys().hasAll(['songId', 'userId', 'title', 'createdAt']) &&
+                         incoming().createdAt is timestamp &&
+                         incoming().createdAt <= request.time &&
+                         isValidFavorite(incoming(), userId);
+
+        allow update: if isOwner(userId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().songId == existing().songId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidFavorite(incoming(), userId) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'artist', 'album', 'duration', 'coverUrl', 'updatedAt']);
+
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}
