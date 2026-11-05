@@ -129,6 +129,8 @@ dependencies {
   
   // Palette for dynamic colors
   implementation(libs.androidx.palette.ktx)
+  implementation(libs.youtubedl.library)
+  implementation(libs.youtubedl.ffmpeg)
 
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
