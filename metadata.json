@@ -1,6 +1,6 @@
 {
-  "name": "MyatoPlayer",
-  "description": "Professional music player and downloader with advanced equalizer, smart library, and modern dark UI.",
+  "name": "Myato Player",
+  "description": "Professional music player with advanced equalizer, smart library, and modern dark UI.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

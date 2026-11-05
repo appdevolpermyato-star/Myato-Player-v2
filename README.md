@@ -2,7 +2,7 @@
 
 ![MyatoPlayer](app/src/main/res/drawable/myato_logo.png)
 
-**MyatoPlayer** é um aplicativo Android completo, moderno e comercial, focado em **privacidade e operação 100% offline**. Combina o design refinado de plataformas como Spotify e Apple Music com um avançado **Centro de Downloads** e um sistema de perfil totalmente local, sem qualquer dependência de nuvem ou Firebase.
+**MyatoPlayer** é um aplicativo Android completo, moderno e comercial, focado em **privacidade e operação 100% offline**. Combina o design refinado de plataformas como Spotify e Apple Music com um sistema de perfil totalmente local, sem qualquer dependência de nuvem ou Firebase.
 
 ---
 
@@ -30,7 +30,7 @@ Para instalar:
 ### 2. 🧭 Navegação Profissional
 1. **Início (Home)**: Card "Continuar Ouvindo", carrosséis de "Tocadas Recentemente", "Mais Ouvidas" e recomendações inteligentes locais.
 2. **Biblioteca (Library)**: Gestão de arquivos locais com filtros rápidos e Smart Picks (Sugestões geradas localmente).
-3. **Downloads**: Hub completo para baixar áudio por link direto com monitoramento em tempo real.
+3. **Explorar**: Busque milhões de músicas gratuitas através das APIs do Jamendo e SoundCloud para reprodução instantânea (Requer internet para busca).
 4. **Playlists**: Criação ilimitada de listas personalizadas salvas no banco de dados Room.
 5. **Configurações**: Equalizador, Temporizador de Sono e ajustes de desempenho.
 

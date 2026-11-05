@@ -8,10 +8,8 @@ import android.net.Uri
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
-import com.example.data.download.DownloadEngine
 import com.example.data.local.MusicDao
 import com.example.data.local.PlaylistSongCrossRef
-import com.example.data.model.DownloadItem
 import com.example.data.model.Playlist
 import com.example.data.model.Song
 import kotlinx.coroutines.Dispatchers
@@ -32,14 +30,6 @@ class MusicRepository(
     suspend fun insertSong(song: Song) = musicDao.insertSong(song)
     suspend fun insertSongs(songs: List<Song>) = musicDao.insertSongs(songs)
     val mostPlayedSongs: Flow<List<Song>> = musicDao.getMostPlayedSongs(15)
-    val downloadedSongs: Flow<List<Song>> = musicDao.getDownloadedSongs()
-    val allDownloads: Flow<List<DownloadItem>> = musicDao.getAllDownloads()
-
-    val downloadEngine = DownloadEngine(context, musicDao)
-
-    suspend fun repairDownloads() {
-        downloadEngine.repairExistingDownloads()
-    }
 
     suspend fun recordSongPlayed(songId: String) {
         musicDao.recordSongPlayed(songId, System.currentTimeMillis())
@@ -55,7 +45,10 @@ class MusicRepository(
             MediaStore.Audio.Media.ALBUM,
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.ALBUM_ID,
-            MediaStore.Audio.Media.DISPLAY_NAME
+            MediaStore.Audio.Media.DISPLAY_NAME,
+            MediaStore.Audio.Media.SIZE,
+            MediaStore.Audio.Media.MIME_TYPE,
+            MediaStore.Audio.Media.DATA
         )
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
         val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
@@ -69,6 +62,11 @@ class MusicRepository(
                 val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
                 val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
                 val displayNameColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+                val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+                val mimeTypeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
+                val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+
+                val retriever = MediaMetadataRetriever()
 
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(idColumn)
@@ -79,12 +77,30 @@ class MusicRepository(
                     val album = cursor.getString(albumColumn) ?: "Álbum Desconhecido"
                     val duration = cursor.getLong(durationColumn)
                     val albumId = cursor.getLong(albumIdColumn)
+                    val fileSize = cursor.getLong(sizeColumn)
+                    val mimeType = cursor.getString(mimeTypeColumn) ?: "audio/mpeg"
+                    val filePath = cursor.getString(dataColumn)
 
                     val contentUri = ContentUris.withAppendedId(collection, id)
                     val artworkUri = ContentUris.withAppendedId(
                         Uri.parse("content://media/external/audio/albumart"),
                         albumId
                     )
+
+                    var bitrate = 0
+                    var sampleRate = 0
+                    var format = mimeType.substringAfter("/").uppercase()
+
+                    // Try to get more precise metadata for local files
+                    try {
+                        if (filePath != null && File(filePath).exists()) {
+                            retriever.setDataSource(filePath)
+                            val bitStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
+                            val sampStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE)
+                            bitrate = bitStr?.toIntOrNull() ?: 0
+                            sampleRate = sampStr?.toIntOrNull() ?: 0
+                        }
+                    } catch (_: Exception) {}
 
                     songs.add(
                         Song(
@@ -94,10 +110,16 @@ class MusicRepository(
                             album = if (album == "<unknown>") "Álbum Desconhecido" else album,
                             duration = if (duration > 0) duration else 180000L,
                             mediaUri = contentUri.toString(),
-                            coverUri = artworkUri.toString()
+                            coverUri = artworkUri.toString(),
+                            fileSize = fileSize,
+                            format = format,
+                            bitrate = bitrate,
+                            sampleRate = sampleRate,
+                            folder = filePath?.let { File(it).parentFile?.name } ?: "Raiz"
                         )
                     )
                 }
+                try { retriever.release() } catch (_: Exception) {}
             }
         } catch (e: Exception) {
             Log.e("MusicRepository", "Error querying MediaStore", e)
@@ -107,6 +129,52 @@ class MusicRepository(
             musicDao.insertSongs(songs)
         }
         songs.size
+    }
+
+    suspend fun updateSongTags(songId: String, title: String, artist: String, album: String, genre: String?) {
+        val song = musicDao.getSongByIdSync(songId) ?: return
+        val updatedSong = song.copy(
+            title = title,
+            artist = artist,
+            album = album,
+            genre = genre
+        )
+        musicDao.insertSong(updatedSong)
+    }
+
+    suspend fun detectDuplicates(): List<Song> = withContext(Dispatchers.IO) {
+        val all = musicDao.getAllSongsSync()
+        val duplicates = mutableListOf<Song>()
+        val seen = mutableSetOf<String>() // key = title + artist + duration
+
+        for (song in all) {
+            val key = "${song.title.lowercase()}|${song.artist.lowercase()}|${song.duration / 1000}"
+            if (seen.contains(key)) {
+                duplicates.add(song)
+            } else {
+                seen.add(key)
+            }
+        }
+        duplicates
+    }
+
+    suspend fun getSongById(id: String) = musicDao.getSongByIdSync(id)
+
+    // Statistics and Wrapped
+    fun getMostPlayedSongs(limit: Int) = musicDao.getMostPlayedSongs(limit)
+    fun getRecentlyPlayedHistory(limit: Int) = musicDao.getRecentlyPlayedSongs(limit)
+    
+    suspend fun getWrappedStats(year: Int): Map<String, Any> = withContext(Dispatchers.IO) {
+        val mostPlayed = musicDao.getMostPlayedSongsSync(5)
+        val totalPlayTime = musicDao.getTotalPlaybackTimeSync()
+        val topArtist = musicDao.getTopArtistSync()
+        
+        mapOf(
+            "topSongs" to mostPlayed,
+            "totalMinutes" to totalPlayTime / 60000,
+            "topArtist" to (topArtist ?: "Nenhum"),
+            "year" to year
+        )
     }
 
     suspend fun importAudioUris(uris: List<Uri>): List<Song> = withContext(Dispatchers.IO) {

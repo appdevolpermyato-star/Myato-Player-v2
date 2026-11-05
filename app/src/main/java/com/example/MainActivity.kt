@@ -31,7 +31,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.local.MusicDatabase
 import com.example.data.repository.MusicRepository
 import com.example.ui.auth.AuthViewModel
-import com.example.ui.archive.ArchiveViewModel
 import com.example.ui.music.MusicViewModel
 import com.example.ui.screens.MainScreen
 import com.example.ui.theme.MyApplicationTheme
@@ -40,12 +39,47 @@ import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
+    private var targetDestination by mutableStateOf<String?>(null)
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val dest = intent.getStringExtra("target_screen")
+        if (!dest.isNullOrBlank()) {
+            targetDestination = dest
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        val dest = intent.getStringExtra("target_screen")
+        if (!dest.isNullOrBlank()) {
+            targetDestination = dest
+        }
+
         val database = MusicDatabase.getDatabase(this)
         val repository = MusicRepository(this, database.musicDao())
+
+        // Register for noisy audio (headset unplugged)
+        registerReceiver(
+            object : android.content.BroadcastReceiver() {
+                override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+                    if (android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY == intent?.action) {
+                        // Media3 / PlaybackService handles this automatically
+                    }
+                }
+            },
+            android.content.IntentFilter(android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+        )
+
+        // Auto-start floating player if enabled and permitted
+        if (com.example.service.FloatingPlayerPrefs.isAutoStart(this) &&
+            com.example.service.FloatingPlayerPrefs.canDrawOverlays(this)
+        ) {
+            com.example.service.FloatingPlayerService.start(this)
+        }
 
         setContent {
             MyApplicationTheme {
@@ -57,8 +91,6 @@ class MainActivity : ComponentActivity() {
                     LaunchedEffect(Unit) {
                         authViewModel.init(this@MainActivity)
                     }
-                    val archiveViewModel: ArchiveViewModel = viewModel()
-                    val youTubeViewModel: com.example.ui.youtube.YouTubeViewModel = viewModel()
                     val musicViewModel: MusicViewModel = viewModel(
                         factory = object : androidx.lifecycle.ViewModelProvider.Factory {
                             override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
@@ -90,7 +122,7 @@ class MainActivity : ComponentActivity() {
                         }
 
                         // Brief splash duration for premium feel
-                        delay(1200)
+                        delay(1000)
                         isSplashScreenVisible = false
                     }
 
@@ -107,8 +139,8 @@ class MainActivity : ComponentActivity() {
                             MainScreen(
                                 musicViewModel = musicViewModel,
                                 authViewModel = authViewModel,
-                                archiveViewModel = archiveViewModel,
-                                youTubeViewModel = youTubeViewModel,
+                                initialDestination = targetDestination,
+                                onDestinationConsumed = { targetDestination = null },
                                 onRequestPermissions = {
                                     permissionLauncher.launch(PermissionHelper.getStartupPermissions())
                                 }
@@ -129,9 +161,9 @@ fun SplashScreen() {
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        Color(0xFF04070E),
-                        Color(0xFF080E1B),
-                        Color(0xFF020408)
+                        Color(0xFF09090D),
+                        Color(0xFF21172B),
+                        Color(0xFF09090D)
                     )
                 )
             ),
@@ -141,21 +173,12 @@ fun SplashScreen() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Surface(
-                modifier = Modifier
-                    .size(110.dp)
-                    .shadow(24.dp, RoundedCornerShape(24.dp), spotColor = MaterialTheme.colorScheme.primary),
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surface
-            ) {
-                Image(
-                    painter = painterResource(id = R.drawable.myato_logo),
-                    contentDescription = "Myato Player",
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+            com.example.ui.util.MpStreetLogo(
+                size = 92.dp,
+                showGlow = true
+            )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(28.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -166,23 +189,26 @@ fun SplashScreen() {
                     ),
                     color = MaterialTheme.colorScheme.primary
                 )
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "PLAYER",
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontWeight = FontWeight.Light,
                         letterSpacing = 4.sp
                     ),
-                    color = Color.White
+                    color = Color(0xFFF3F0F5)
                 )
             }
 
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "Offline High-Fidelity Music Experience",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = "STREET CULTURE • HIGH FIDELITY",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    letterSpacing = 2.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
             )
 
             Spacer(modifier = Modifier.height(36.dp))

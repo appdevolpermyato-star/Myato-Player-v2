@@ -12,7 +12,6 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import com.example.data.model.DownloadItem
 import com.example.data.model.Playlist
 import com.example.data.model.Song
 import com.example.data.repository.MusicRepository
@@ -59,12 +58,6 @@ class MusicViewModel(
     val mostPlayedSongs: StateFlow<List<Song>> = repository.mostPlayedSongs
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val downloadedSongs: StateFlow<List<Song>> = repository.downloadedSongs
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val allDownloads: StateFlow<List<DownloadItem>> = repository.allDownloads
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
     val playlists: StateFlow<List<Playlist>> = repository.allPlaylists
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -76,6 +69,12 @@ class MusicViewModel(
 
     private val _isShuffleEnabled = MutableStateFlow(false)
     val isShuffleEnabled: StateFlow<Boolean> = _isShuffleEnabled.asStateFlow()
+
+    private val _isSmartShuffleEnabled = MutableStateFlow(false)
+    val isSmartShuffleEnabled: StateFlow<Boolean> = _isSmartShuffleEnabled.asStateFlow()
+
+    private val _crossfadeDuration = MutableStateFlow(3000L) // 3 seconds default
+    val crossfadeDuration: StateFlow<Long> = _crossfadeDuration.asStateFlow()
 
     // 0: Off, 1: Repeat All, 2: Repeat One
     private val _repeatMode = MutableStateFlow(Player.REPEAT_MODE_OFF)
@@ -110,7 +109,6 @@ class MusicViewModel(
                     }
                 }
             }
-            repository.repairDownloads()
         }
     }
 
@@ -137,6 +135,8 @@ class MusicViewModel(
                         repository.recordSongPlayed(songId)
                     }
                 }
+                // Reset volume after transition if crossfade was used
+                player.volume = 1.0f
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -174,15 +174,27 @@ class MusicViewModel(
         })
         updatePlaybackState()
 
-        // Timer for smooth seekbar updates
+        // Timer for smooth seekbar updates and Crossfade detection
         viewModelScope.launch {
             while (true) {
                 controller?.let { p ->
                     if (p.isPlaying) {
                         _currentPosition.value = p.currentPosition
+                        
+                        // Crossfade logic: manual volume ramp down when near end
+                        val duration = p.duration
+                        if (duration > 0 && _crossfadeDuration.value > 0) {
+                            val remaining = duration - p.currentPosition
+                            if (remaining in 1.._crossfadeDuration.value) {
+                                val volume = (remaining.toFloat() / _crossfadeDuration.value.toFloat()).coerceIn(0f, 1f)
+                                p.volume = volume
+                            } else {
+                                p.volume = 1.0f
+                            }
+                        }
                     }
                 }
-                delay(500)
+                delay(200) // Faster polling for crossfade smoothness
             }
         }
     }
@@ -208,20 +220,40 @@ class MusicViewModel(
             if (path != null && !path.startsWith("content://") && !path.startsWith("http")) {
                 val f = java.io.File(path)
                 if (!f.exists() || f.length() < 1024L) {
-                    _playbackState.value = PlaybackState.Error("Arquivo '${song.title}' não foi encontrado no dispositivo ou está corrompido.")
+                    _playbackState.value = PlaybackState.Error("Arquivo '${song.title}' não foi encontrado no dispositivo.")
                     return
                 }
             }
         }
-        val queue = if (_currentQueue.value.any { it.id == song.id }) {
-            _currentQueue.value
-        } else {
-            listOf(song) + allSongs.value.filter { it.id != song.id }
+        
+        var queue = _currentQueue.value
+        if (!queue.any { it.id == song.id }) {
+            queue = listOf(song) + allSongs.value.filter { it.id != song.id }
         }
+        
+        if (_isSmartShuffleEnabled.value) {
+            queue = applySmartShuffle(queue, song)
+        }
+
         playQueue(queue, queue.indexOfFirst { it.id == song.id }.coerceAtLeast(0))
         viewModelScope.launch {
             repository.recordSongPlayed(song.id)
         }
+    }
+
+    private fun applySmartShuffle(songs: List<Song>, firstSong: Song): List<Song> {
+        val others = songs.filter { it.id != firstSong.id }.shuffled()
+        // Smart Shuffle: try to alternate artists or genres if available
+        // For now, just a standard high-quality shuffle
+        return listOf(firstSong) + others
+    }
+
+    fun toggleSmartShuffle() {
+        _isSmartShuffleEnabled.value = !_isSmartShuffleEnabled.value
+    }
+
+    fun setCrossfade(durationMs: Long) {
+        _crossfadeDuration.value = durationMs
     }
 
     fun playQueue(songs: List<Song>, startIndex: Int = 0) {
@@ -282,6 +314,14 @@ class MusicViewModel(
         val newShuffle = !player.shuffleModeEnabled
         player.shuffleModeEnabled = newShuffle
         _isShuffleEnabled.value = newShuffle
+        if (newShuffle && _isSmartShuffleEnabled.value) {
+            // Re-shuffle the queue smartly
+            val current = player.currentMediaItem?.mediaId
+            val currentQueue = _currentQueue.value
+            val currentSong = currentQueue.find { it.id == current } ?: return
+            val smart = applySmartShuffle(currentQueue, currentSong)
+            playQueue(smart, 0)
+        }
     }
 
     fun toggleRepeatMode() {
@@ -335,51 +375,6 @@ class MusicViewModel(
         viewModelScope.launch {
             repository.insertSong(song)
         }
-    }
-
-    // Downloader controls
-    fun startDownload(
-        url: String,
-        title: String? = null,
-        artist: String? = null,
-        album: String? = null,
-        expectedSize: Long? = null,
-        expectedMd5: String? = null,
-        expectedSha1: String? = null,
-        expectedDuration: Long? = null
-    ) {
-        repository.downloadEngine.startDownload(
-            url = url,
-            customTitle = title,
-            customArtist = artist,
-            customAlbum = album,
-            expectedSize = expectedSize,
-            expectedMd5 = expectedMd5,
-            expectedSha1 = expectedSha1,
-            expectedDuration = expectedDuration
-        )
-    }
-
-    fun repairExistingDownloads() {
-        viewModelScope.launch {
-            repository.repairDownloads()
-        }
-    }
-
-    fun pauseDownload(id: String) {
-        repository.downloadEngine.pauseDownload(id)
-    }
-
-    fun resumeDownload(id: String) {
-        repository.downloadEngine.resumeDownload(id)
-    }
-
-    fun cancelDownload(id: String) {
-        repository.downloadEngine.cancelDownload(id)
-    }
-
-    fun deleteDownloadedFile(id: String) {
-        repository.downloadEngine.deleteDownloadedFile(id)
     }
 
     fun createPlaylist(name: String, description: String? = null) {
@@ -443,6 +438,16 @@ class MusicViewModel(
     fun setVirtualizer(strength: Int) = AudioEffectManager.instance.setVirtualizer(strength)
     fun setBandLevel(band: Short, level: Short) = AudioEffectManager.instance.setBandLevel(band, level)
 
+    fun updateSongTags(songId: String, title: String, artist: String, album: String, genre: String?) {
+        viewModelScope.launch {
+            repository.updateSongTags(songId, title, artist, album, genre)
+        }
+    }
+
+    suspend fun detectDuplicates(): List<Song> {
+        return repository.detectDuplicates()
+    }
+
     override fun onCleared() {
         super.onCleared()
         sleepTimerManager.cancelTimer()
@@ -451,3 +456,4 @@ class MusicViewModel(
         }
     }
 }
+

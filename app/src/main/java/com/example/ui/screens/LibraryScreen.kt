@@ -794,7 +794,7 @@ fun EmptyLibraryState(isSearching: Boolean, onScanClick: () -> Unit) {
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Escaneie seus arquivos locais ou baixe músicas na aba Downloads.",
+                text = "Escaneie seus arquivos locais ou pesquise novas músicas online.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

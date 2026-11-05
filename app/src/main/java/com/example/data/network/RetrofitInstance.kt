@@ -10,7 +10,6 @@ import java.util.concurrent.TimeUnit
 
 object RetrofitInstance {
     private val moshi = Moshi.Builder()
-        .add(FlexibleStringAdapter())
         .add(KotlinJsonAdapterFactory())
         .build()
 
@@ -26,33 +25,6 @@ object RetrofitInstance {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    val archiveApi: ArchiveApiService by lazy {
-        Retrofit.Builder()
-            .baseUrl(ArchiveApiService.BASE_URL)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .client(client)
-            .build()
-            .create(ArchiveApiService::class.java)
-    }
-
-    val youtubeApi: YouTubeApiService by lazy {
-        Retrofit.Builder()
-            .baseUrl(YouTubeApiService.BASE_URL)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .client(client)
-            .build()
-            .create(YouTubeApiService::class.java)
-    }
-
-    val youtubeOEmbedApi: YouTubeOEmbedService by lazy {
-        Retrofit.Builder()
-            .baseUrl(YouTubeOEmbedService.BASE_URL)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .client(client)
-            .build()
-            .create(YouTubeOEmbedService::class.java)
-    }
-
     val jamendoApi: JamendoApiService by lazy {
         Retrofit.Builder()
             .baseUrl(JamendoApiService.BASE_URL)
@@ -60,14 +32,5 @@ object RetrofitInstance {
             .client(client)
             .build()
             .create(JamendoApiService::class.java)
-    }
-
-    val soundCloudApi: SoundCloudApiService by lazy {
-        Retrofit.Builder()
-            .baseUrl(SoundCloudApiService.BASE_URL)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .client(client)
-            .build()
-            .create(SoundCloudApiService::class.java)
     }
 }

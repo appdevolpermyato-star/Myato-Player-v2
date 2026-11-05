@@ -31,7 +31,6 @@ import coil.compose.AsyncImage
 import com.example.R
 import com.example.ui.auth.AuthUiState
 import com.example.ui.auth.AuthViewModel
-import com.example.ui.archive.ArchiveViewModel
 import com.example.ui.music.MusicViewModel
 import com.example.ui.music.PlaybackState
 import com.example.ui.util.UserProfile
@@ -39,9 +38,11 @@ import com.example.ui.util.UserProfile
 sealed class Screen(val route: String, val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     data object Home : Screen("home", "Início", Icons.Default.Home)
     data object Library : Screen("library", "Biblioteca", Icons.Default.LibraryMusic)
-    data object Downloads : Screen("downloads", "Downloads", Icons.Default.Download)
     data object Playlists : Screen("playlists", "Playlists", Icons.Default.QueueMusic)
     data object Settings : Screen("settings", "Ajustes", Icons.Default.Settings)
+    data object Search : Screen("search", "Busca", Icons.Default.Search)
+    data object Stats : Screen("stats", "Estatísticas", Icons.Default.BarChart)
+    data object Folders : Screen("folders", "Pastas", Icons.Default.Folder)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,10 +50,11 @@ sealed class Screen(val route: String, val title: String, val icon: androidx.com
 fun MainScreen(
     musicViewModel: MusicViewModel,
     authViewModel: AuthViewModel,
-    archiveViewModel: ArchiveViewModel,
-    youTubeViewModel: com.example.ui.youtube.YouTubeViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+    initialDestination: String? = null,
+    onDestinationConsumed: () -> Unit = {},
     onRequestPermissions: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: Screen.Home.route
@@ -63,6 +65,19 @@ fun MainScreen(
 
     val authState by authViewModel.uiState.collectAsState()
     val localProfile = (authState as? AuthUiState.Success)?.profile
+
+    // Handle deep navigation from Floating Player shortcuts or external intents
+    LaunchedEffect(initialDestination) {
+        initialDestination?.let { dest ->
+            when (dest) {
+                "library" -> navController.navigate(Screen.Library.route) { launchSingleTop = true }
+                "playlists" -> navController.navigate(Screen.Playlists.route) { launchSingleTop = true }
+                "favorites" -> navController.navigate(Screen.Library.route) { launchSingleTop = true }
+                "home" -> navController.navigate(Screen.Home.route) { launchSingleTop = true }
+            }
+            onDestinationConsumed()
+        }
+    }
 
     if (showPlayer) {
         PlayerScreen(
@@ -75,34 +90,71 @@ fun MainScreen(
                 TopAppBar(
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Image(
-                                painter = painterResource(id = R.drawable.myato_logo),
-                                contentDescription = "Logo",
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(RoundedCornerShape(8.dp))
+                            com.example.ui.util.MpStreetLogo(
+                                size = 36.dp,
+                                showGlow = true
                             )
                             Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = "MYATO",
-                                style = MaterialTheme.typography.titleLarge.copy(
-                                    fontWeight = FontWeight.Black,
-                                    letterSpacing = 2.sp
-                                ),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "PLAYER",
-                                style = MaterialTheme.typography.titleLarge.copy(
-                                    fontWeight = FontWeight.Light,
-                                    letterSpacing = 2.sp
-                                ),
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "MYATO",
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontWeight = FontWeight.Black,
+                                            letterSpacing = 2.sp
+                                        ),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "PLAYER",
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontWeight = FontWeight.Light,
+                                            letterSpacing = 2.sp
+                                        ),
+                                        color = MaterialTheme.colorScheme.onBackground
+                                    )
+                                }
+                                Text(
+                                    text = "STREET CULTURE",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        letterSpacing = 1.2.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    ),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f)
+                                )
+                            }
                         }
                     },
                     actions = {
+                        // Quick Toggle Floating Player
+                        IconButton(onClick = {
+                            if (com.example.service.FloatingPlayerPrefs.canDrawOverlays(context)) {
+                                if (com.example.service.FloatingPlayerService.isRunning) {
+                                    com.example.service.FloatingPlayerService.stop(context)
+                                } else {
+                                    com.example.service.FloatingPlayerService.start(context)
+                                }
+                            } else {
+                                com.example.service.FloatingPlayerPrefs.openOverlaySettings(context)
+                            }
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.PictureInPictureAlt,
+                                contentDescription = "Floating Player MP",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        // Global Search Button
+                        IconButton(onClick = { navController.navigate(Screen.Search.route) }) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Pesquisar Músicas Online",
+                                tint = MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+
                         // Quick Equalizer Button
                         IconButton(onClick = { showEqualizer = true }) {
                             Icon(
@@ -150,12 +202,11 @@ fun MainScreen(
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
                         contentColor = MaterialTheme.colorScheme.onSurface,
-                        tonalElevation = 6.dp
+                        tonalElevation = 8.dp
                     ) {
                         val items = listOf(
                             Screen.Home,
                             Screen.Library,
-                            Screen.Downloads,
                             Screen.Playlists,
                             Screen.Settings
                         )
@@ -172,7 +223,7 @@ fun MainScreen(
                                 label = {
                                     Text(
                                         screen.title,
-                                        style = MaterialTheme.typography.labelSmall,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal),
                                         color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 },
@@ -200,7 +251,6 @@ fun MainScreen(
                     HomeScreen(
                         viewModel = musicViewModel,
                         onNavigateToLibrary = { navController.navigate(Screen.Library.route) },
-                        onNavigateToDownloads = { navController.navigate(Screen.Downloads.route) },
                         onNavigateToPlaylists = { navController.navigate(Screen.Playlists.route) },
                         onOpenEqualizer = { showEqualizer = true }
                     )
@@ -211,12 +261,8 @@ fun MainScreen(
                         onRequestPermissions = onRequestPermissions
                     )
                 }
-                composable(Screen.Downloads.route) {
-                    DownloadsScreen(
-                        viewModel = musicViewModel,
-                        archiveViewModel = archiveViewModel,
-                        youTubeViewModel = youTubeViewModel
-                    )
+                composable(Screen.Search.route) {
+                    SearchScreen(viewModel = musicViewModel)
                 }
                 composable(Screen.Playlists.route) {
                     PlaylistsScreen(viewModel = musicViewModel)
@@ -224,7 +270,21 @@ fun MainScreen(
                 composable(Screen.Settings.route) {
                     SettingsScreen(
                         viewModel = musicViewModel,
-                        onOpenEqualizer = { showEqualizer = true }
+                        onOpenEqualizer = { showEqualizer = true },
+                        onNavigateToStats = { navController.navigate(Screen.Stats.route) },
+                        onNavigateToFolders = { navController.navigate(Screen.Folders.route) }
+                    )
+                }
+                composable(Screen.Stats.route) {
+                    StatsScreen(
+                        viewModel = musicViewModel,
+                        onSongClick = { musicViewModel.playSong(it) }
+                    )
+                }
+                composable(Screen.Folders.route) {
+                    FolderBrowserScreen(
+                        viewModel = musicViewModel,
+                        onSongClick = { musicViewModel.playSong(it) }
                     )
                 }
             }
@@ -267,11 +327,14 @@ fun NowPlayingBar(viewModel: MusicViewModel, onExpand: () -> Unit) {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(18.dp))
                     .clickable { onExpand() },
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                tonalElevation = 8.dp
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(18.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x40A855F7)),
+                tonalElevation = 8.dp,
+                shadowElevation = 8.dp
             ) {
                 Column {
                     Row(
@@ -282,8 +345,9 @@ fun NowPlayingBar(viewModel: MusicViewModel, onExpand: () -> Unit) {
                     ) {
                         Surface(
                             modifier = Modifier.size(46.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surface
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0x33A855F7))
                         ) {
                             if (!playing.currentSong.coverUri.isNullOrEmpty()) {
                                 AsyncImage(
@@ -313,7 +377,8 @@ fun NowPlayingBar(viewModel: MusicViewModel, onExpand: () -> Unit) {
                                 text = playing.currentSong.title,
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = playing.currentSong.artist,
@@ -324,20 +389,31 @@ fun NowPlayingBar(viewModel: MusicViewModel, onExpand: () -> Unit) {
                             )
                         }
 
-                        IconButton(onClick = { viewModel.togglePlayPause() }) {
-                            Icon(
-                                imageVector = if (playing.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = "Play/Pause",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(30.dp)
-                            )
+                        // Play / Pause circular action
+                        Surface(
+                            onClick = { viewModel.togglePlayPause() },
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (playing.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = "Play/Pause",
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
                         }
+
+                        Spacer(modifier = Modifier.width(4.dp))
 
                         IconButton(onClick = { viewModel.skipToNext() }) {
                             Icon(
                                 imageVector = Icons.Default.SkipNext,
                                 contentDescription = "Próxima",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(26.dp)
                             )
                         }
                     }
@@ -349,7 +425,7 @@ fun NowPlayingBar(viewModel: MusicViewModel, onExpand: () -> Unit) {
                             .fillMaxWidth()
                             .height(2.5.dp),
                         color = MaterialTheme.colorScheme.primary,
-                        trackColor = Color.Transparent
+                        trackColor = Color(0x22A855F7)
                     )
                 }
             }

@@ -20,8 +20,7 @@ interface JamendoApiService {
         @Query("tags") tags: String? = null,
         @Query("search") search: String? = null,
         @Query("order") order: String = "relevance",
-        @Query("include") include: String = "musicinfo stats licenses",
-        @Query("audiodlformat") downloadFormat: String = "mp32"
+        @Query("include") include: String = "musicinfo stats licenses"
     ): JamendoResponse<JamendoTrack>
 
     @GET("albums")
@@ -41,8 +40,7 @@ interface JamendoApiService {
         @Query("client_id") clientId: String,
         @Query("format") format: String = "json",
         @Query("id") albumId: String,
-        @Query("include") include: String = "musicinfo stats licenses",
-        @Query("audiodlformat") downloadFormat: String = "mp32"
+        @Query("include") include: String = "musicinfo stats licenses"
     ): JamendoResponse<JamendoAlbumTracks>
 
     @GET("playlists")
@@ -61,7 +59,6 @@ interface JamendoApiService {
         @Query("client_id") clientId: String,
         @Query("format") format: String = "json",
         @Query("id") playlistId: String,
-        @Query("include") include: String = "musicinfo stats licenses",
-        @Query("audiodlformat") downloadFormat: String = "mp32"
+        @Query("include") include: String = "musicinfo stats licenses"
     ): JamendoResponse<JamendoPlaylistTracks>
 }

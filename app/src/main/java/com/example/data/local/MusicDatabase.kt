@@ -4,13 +4,18 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import com.example.data.model.DownloadItem
-import com.example.data.model.Playlist
-import com.example.data.model.Song
+import com.example.data.model.*
 
 @Database(
-    entities = [Song::class, Playlist::class, PlaylistSongCrossRef::class, DownloadItem::class],
-    version = 2,
+    entities = [
+        Song::class, 
+        Playlist::class, 
+        PlaylistSongCrossRef::class,
+        PlaybackHistory::class,
+        FavoriteAlbum::class,
+        FavoriteArtist::class
+    ],
+    version = 3,
     exportSchema = false
 )
 abstract class MusicDatabase : RoomDatabase() {

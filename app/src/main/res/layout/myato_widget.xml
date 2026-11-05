@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_container"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:padding="8dp">
+
+    <ImageView
+        android:id="@+id/widget_logo"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_alignParentStart="true"
+        android:layout_centerVertical="true"
+        android:src="@drawable/myato_logo" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerVertical="true"
+        android:layout_toEndOf="@id/widget_logo"
+        android:layout_marginStart="12dp"
+        android:orientation="vertical">
+
+        <Text
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Myato Player"
+            android:textColor="#00FFFF"
+            android:textStyle="bold"
+            android:textSize="14sp" />
+
+        <Text
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Toque para abrir"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp" />
+    </LinearLayout>
+
+    <ImageView
+        android:id="@+id/widget_play"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_alignParentEnd="true"
+        android:layout_centerVertical="true"
+        android:src="@android:drawable/ic_media_play"
+        android:tint="#00FFFF" />
+
+</RelativeLayout>

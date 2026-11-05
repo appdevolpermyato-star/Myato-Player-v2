@@ -18,17 +18,15 @@ data class UnifiedTrack(
     val durationMs: Long,
     val coverUrl: String?,
     val streamUrl: String?,
-    val downloadUrl: String?,
-    val isDownloadAllowed: Boolean,
     val platform: MusicPlatform
 )
 
 enum class MusicPlatform {
-    JAMENDO, SOUNDCLOUD
+    JAMENDO
 }
 
 enum class SearchSourceFilter {
-    ALL, JAMENDO, SOUNDCLOUD
+    ALL, JAMENDO
 }
 
 sealed interface MultiPlatformUiState {
@@ -47,7 +45,6 @@ class MultiPlatformSearchViewModel : ViewModel() {
     val uiState: StateFlow<MultiPlatformUiState> = _uiState.asStateFlow()
 
     private val jamendoApi = RetrofitInstance.jamendoApi
-    private val soundCloudApi = RetrofitInstance.soundCloudApi
 
     private fun getJamendoClientId(): String {
         return try {
@@ -56,16 +53,6 @@ class MultiPlatformSearchViewModel : ViewModel() {
             if (!key.isNullOrBlank() && key != "MY_JAMENDO_CLIENT_ID") key else "709fa152"
         } catch (_: Throwable) {
             "709fa152"
-        }
-    }
-
-    private fun getSoundCloudClientId(): String {
-        return try {
-            val keyField = BuildConfig::class.java.getField("SOUNDCLOUD_CLIENT_ID")
-            val key = keyField.get(null) as? String
-            if (!key.isNullOrBlank() && key != "MY_SOUNDCLOUD_CLIENT_ID") key else "a3119339a9c2db9c6d3dfcf3519c67bc"
-        } catch (_: Throwable) {
-            "a3119339a9c2db9c6d3dfcf3519c67bc"
         }
     }
 
@@ -91,7 +78,6 @@ class MultiPlatformSearchViewModel : ViewModel() {
                         )
                         jamResponse.results.forEach { track ->
                             val stream = track.audio
-                            val download = track.audiodownload?.takeIf { it.isNotBlank() } ?: track.audio
                             unifiedList.add(
                                 UnifiedTrack(
                                     id = "jam_${track.id}",
@@ -101,59 +87,12 @@ class MultiPlatformSearchViewModel : ViewModel() {
                                     durationMs = (track.duration * 1000L),
                                     coverUrl = track.album_image ?: track.image,
                                     streamUrl = stream,
-                                    downloadUrl = download,
-                                    isDownloadAllowed = track.audiodownload_allowed,
                                     platform = MusicPlatform.JAMENDO
                                 )
                             )
                         }
                     } catch (e: Exception) {
                         Log.w("MultiSearch", "Jamendo search failed: ${e.message}")
-                    }
-                }
-
-                // 2. Fetch SoundCloud if ALL or SOUNDCLOUD
-                if (filter == SearchSourceFilter.ALL || filter == SearchSourceFilter.SOUNDCLOUD) {
-                    try {
-                        val scClientId = getSoundCloudClientId()
-                        val scResponse = soundCloudApi.searchTracks(
-                            query = trimmed,
-                            clientId = scClientId,
-                            limit = 25
-                        )
-                        for (scTrack in scResponse.collection) {
-                            var playableUrl = scTrack.streamUrl
-                            if (playableUrl.isNullOrBlank() && scTrack.media?.transcodings != null) {
-                                val mp3Transcoding = scTrack.media.transcodings.firstOrNull { it.format.protocol == "progressive" || it.format.mimeType.contains("audio") }
-                                if (mp3Transcoding != null) {
-                                    try {
-                                        val resolved = soundCloudApi.resolveStreamUrl(mp3Transcoding.url, scClientId)
-                                        playableUrl = resolved.url
-                                    } catch (_: Exception) {}
-                                }
-                            }
-
-                            val downloadUrl = if (scTrack.downloadable && !scTrack.downloadUrl.isNullOrBlank()) {
-                                "${scTrack.downloadUrl}?client_id=$scClientId"
-                            } else null
-
-                            unifiedList.add(
-                                UnifiedTrack(
-                                    id = "sc_${scTrack.id}",
-                                    title = scTrack.title,
-                                    artist = scTrack.user.username,
-                                    album = "SoundCloud",
-                                    durationMs = scTrack.duration,
-                                    coverUrl = scTrack.artworkUrl?.replace("large", "t500x500"),
-                                    streamUrl = playableUrl,
-                                    downloadUrl = downloadUrl,
-                                    isDownloadAllowed = scTrack.downloadable && !downloadUrl.isNullOrBlank(),
-                                    platform = MusicPlatform.SOUNDCLOUD
-                                )
-                            )
-                        }
-                    } catch (e: Exception) {
-                        Log.w("MultiSearch", "SoundCloud search failed: ${e.message}")
                     }
                 }
 

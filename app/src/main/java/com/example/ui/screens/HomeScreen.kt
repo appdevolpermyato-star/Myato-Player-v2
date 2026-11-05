@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +21,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,17 +30,21 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.model.Song
+import com.example.service.FloatingPlayerPrefs
+import com.example.service.FloatingPlayerService
 import com.example.ui.music.MusicViewModel
 import com.example.ui.music.PlaybackState
+import com.example.ui.theme.*
+import com.example.ui.util.MpStreetLogo
 
 @Composable
 fun HomeScreen(
     viewModel: MusicViewModel,
     onNavigateToLibrary: () -> Unit,
-    onNavigateToDownloads: () -> Unit,
     onNavigateToPlaylists: () -> Unit,
     onOpenEqualizer: () -> Unit
 ) {
+    val context = LocalContext.current
     val allSongs by viewModel.allSongs.collectAsState()
     val recentSongs by viewModel.recentlyPlayedSongs.collectAsState()
     val mostPlayed by viewModel.mostPlayedSongs.collectAsState()
@@ -53,9 +59,6 @@ fun HomeScreen(
     val uniqueAlbums = remember(allSongs) {
         allSongs.groupBy { it.album }.map { it.value.first() }.take(10)
     }
-    val uniqueArtists = remember(allSongs) {
-        allSongs.groupBy { it.artist }.map { it.value.first() }.take(10)
-    }
 
     LazyColumn(
         modifier = Modifier
@@ -63,7 +66,7 @@ fun HomeScreen(
             .background(MaterialTheme.colorScheme.background),
         contentPadding = PaddingValues(bottom = 120.dp)
     ) {
-        // 1. BRAND HEADER WITH LOGO
+        // 1. BRAND HEADER WITH MP STREET LOGO & QUICK ACTIONS
         item {
             Row(
                 modifier = Modifier
@@ -73,14 +76,11 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Image(
-                        painter = painterResource(id = R.drawable.myato_logo),
-                        contentDescription = "Myato Player Logo",
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                    MpStreetLogo(
+                        size = 40.dp,
+                        showGlow = true
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -102,14 +102,37 @@ fun HomeScreen(
                             )
                         }
                         Text(
-                            text = "Música Offline & Downloader",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "STREET CULTURE • HIGH FIDELITY",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                letterSpacing = 1.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
                         )
                     }
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // Floating player trigger
+                    IconButton(onClick = {
+                        if (FloatingPlayerPrefs.canDrawOverlays(context)) {
+                            if (FloatingPlayerService.isRunning) {
+                                FloatingPlayerService.stop(context)
+                            } else {
+                                FloatingPlayerService.start(context)
+                            }
+                        } else {
+                            FloatingPlayerPrefs.openOverlaySettings(context)
+                        }
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.PictureInPictureAlt,
+                            contentDescription = "Floating Player MP",
+                            tint = if (FloatingPlayerService.isRunning) PurpleBright else MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    // Equalizer
                     IconButton(onClick = onOpenEqualizer) {
                         Icon(
                             imageVector = Icons.Default.GraphicEq,
@@ -117,6 +140,8 @@ fun HomeScreen(
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
+
+                    // Sync local files
                     IconButton(onClick = { viewModel.scanLocalFiles() }) {
                         Icon(
                             imageVector = Icons.Default.Sync,
@@ -128,16 +153,18 @@ fun HomeScreen(
             }
         }
 
-        // 2. HERO: CONTINUAR OUVINDO
+        // 2. HERO: CONTINUAR OUVINDO (STREET ART CARD)
         if (continueSong != null) {
             item {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 20.dp, vertical = 8.dp)
-                        .clip(RoundedCornerShape(20.dp))
+                        .clip(RoundedCornerShape(22.dp))
                         .clickable { viewModel.playSong(continueSong) },
-                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(22.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0x55A855F7)),
                     tonalElevation = 6.dp
                 ) {
                     Box(
@@ -146,8 +173,8 @@ fun HomeScreen(
                             .background(
                                 Brush.horizontalGradient(
                                     listOf(
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
-                                        Color(0xFF10192A)
+                                        Color(0x33A855F7),
+                                        Color(0xFF21172B)
                                     )
                                 )
                             )
@@ -159,10 +186,11 @@ fun HomeScreen(
                         ) {
                             Surface(
                                 modifier = Modifier
-                                    .size(68.dp)
-                                    .shadow(8.dp, RoundedCornerShape(12.dp)),
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surface
+                                    .size(70.dp)
+                                    .shadow(12.dp, RoundedCornerShape(14.dp), spotColor = PurplePrimary),
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x66A855F7))
                             ) {
                                 if (!continueSong.coverUri.isNullOrEmpty()) {
                                     AsyncImage(
@@ -177,7 +205,7 @@ fun HomeScreen(
                                             imageVector = Icons.Default.MusicNote,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(32.dp)
+                                            modifier = Modifier.size(34.dp)
                                         )
                                     }
                                 }
@@ -194,12 +222,13 @@ fun HomeScreen(
                                     ),
                                     color = MaterialTheme.colorScheme.primary
                                 )
-                                Spacer(modifier = Modifier.height(2.dp))
+                                Spacer(modifier = Modifier.height(3.dp))
                                 Text(
                                     text = continueSong.title,
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                     text = "${continueSong.artist} • ${continueSong.album}",
@@ -220,7 +249,9 @@ fun HomeScreen(
                                 },
                                 shape = CircleShape,
                                 color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(46.dp)
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .shadow(8.dp, CircleShape, spotColor = PurplePrimary)
                             ) {
                                 val isThisPlaying = (playbackState as? PlaybackState.Playing)?.let {
                                     it.currentSong.id == continueSong.id && it.isPlaying
@@ -231,7 +262,7 @@ fun HomeScreen(
                                         imageVector = if (isThisPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                         contentDescription = "Play",
                                         tint = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(26.dp)
                                     )
                                 }
                             }
@@ -250,12 +281,6 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 QuickActionChip(
-                    icon = Icons.Default.Download,
-                    title = "Baixar Link",
-                    onClick = onNavigateToDownloads,
-                    modifier = Modifier.weight(1f)
-                )
-                QuickActionChip(
                     icon = Icons.Default.LibraryMusic,
                     title = "Biblioteca",
                     onClick = onNavigateToLibrary,
@@ -267,6 +292,18 @@ fun HomeScreen(
                     onClick = onNavigateToPlaylists,
                     modifier = Modifier.weight(1f)
                 )
+                QuickActionChip(
+                    icon = Icons.Default.PictureInPictureAlt,
+                    title = "Floating",
+                    onClick = {
+                        if (FloatingPlayerPrefs.canDrawOverlays(context)) {
+                            FloatingPlayerService.start(context)
+                        } else {
+                            FloatingPlayerPrefs.openOverlaySettings(context)
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
 
@@ -275,7 +312,7 @@ fun HomeScreen(
             item {
                 HomeSectionHeader(
                     title = "Tocadas Recentemente",
-                    subtitle = "Suas últimas faixas",
+                    subtitle = "Suas últimas faixas reproduzidas",
                     onSeeAll = onNavigateToLibrary
                 )
             }
@@ -300,7 +337,7 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(16.dp))
                 HomeSectionHeader(
                     title = "Mais Ouvidas",
-                    subtitle = "Suas faixas favoritas do dia a dia",
+                    subtitle = "Suas faixas em alta no dia a dia",
                     onSeeAll = onNavigateToLibrary
                 )
             }
@@ -325,7 +362,7 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(16.dp))
                 HomeSectionHeader(
                     title = "Músicas Curtidas",
-                    subtitle = "${favorites.size} músicas salvas",
+                    subtitle = "${favorites.size} músicas salvas na sua coleção",
                     onSeeAll = onNavigateToLibrary
                 )
             }
@@ -349,8 +386,8 @@ fun HomeScreen(
             item {
                 Spacer(modifier = Modifier.height(16.dp))
                 HomeSectionHeader(
-                    title = "Álbuns Encontrados",
-                    subtitle = "Organizados automaticamente",
+                    title = "Álbuns em Destaque",
+                    subtitle = "Organizados da sua biblioteca",
                     onSeeAll = onNavigateToLibrary
                 )
             }
@@ -376,12 +413,12 @@ fun HomeScreen(
             }
         }
 
-        // 8. ADICIONADAS RECENTEMENTE
+        // 8. TODAS AS MÚSICAS
         item {
             Spacer(modifier = Modifier.height(16.dp))
             HomeSectionHeader(
                 title = "Todas as Músicas",
-                subtitle = "${allSongs.size} faixas locais disponíveis",
+                subtitle = "${allSongs.size} faixas locais prontas para tocar",
                 onSeeAll = onNavigateToLibrary
             )
         }
@@ -436,15 +473,16 @@ fun HomeSectionHeader(title: String, subtitle: String? = null, onSeeAll: () -> U
 fun SongCarouselCard(song: Song, onClick: () -> Unit) {
     Column(
         modifier = Modifier
-            .width(130.dp)
+            .width(134.dp)
             .clickable { onClick() }
     ) {
         Surface(
             modifier = Modifier
-                .size(130.dp)
-                .shadow(6.dp, RoundedCornerShape(14.dp)),
-            shape = RoundedCornerShape(14.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant
+                .size(134.dp)
+                .shadow(8.dp, RoundedCornerShape(16.dp), spotColor = PurplePrimary),
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33A855F7))
         ) {
             if (!song.coverUri.isNullOrEmpty()) {
                 AsyncImage(
@@ -459,7 +497,7 @@ fun SongCarouselCard(song: Song, onClick: () -> Unit) {
                         .fillMaxSize()
                         .background(
                             Brush.linearGradient(
-                                listOf(Color(0xFF1E283C), Color(0xFF0F1522))
+                                listOf(GraphiteDark, BlackSecondary)
                             )
                         ),
                     contentAlignment = Alignment.Center
@@ -468,7 +506,7 @@ fun SongCarouselCard(song: Song, onClick: () -> Unit) {
                         imageVector = Icons.Default.MusicNote,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(44.dp)
                     )
                 }
             }
@@ -478,7 +516,8 @@ fun SongCarouselCard(song: Song, onClick: () -> Unit) {
             text = song.title,
             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            color = MaterialTheme.colorScheme.onBackground
         )
         Text(
             text = song.artist,
@@ -494,15 +533,16 @@ fun SongCarouselCard(song: Song, onClick: () -> Unit) {
 fun AlbumCard(albumName: String, artist: String, coverUri: String?, onClick: () -> Unit) {
     Column(
         modifier = Modifier
-            .width(130.dp)
+            .width(134.dp)
             .clickable { onClick() }
     ) {
         Surface(
             modifier = Modifier
-                .size(130.dp)
-                .shadow(6.dp, RoundedCornerShape(14.dp)),
-            shape = RoundedCornerShape(14.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant
+                .size(134.dp)
+                .shadow(8.dp, RoundedCornerShape(16.dp), spotColor = PurplePrimary),
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33A855F7))
         ) {
             if (!coverUri.isNullOrEmpty()) {
                 AsyncImage(
@@ -517,7 +557,7 @@ fun AlbumCard(albumName: String, artist: String, coverUri: String?, onClick: () 
                         .fillMaxSize()
                         .background(
                             Brush.linearGradient(
-                                listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364))
+                                listOf(GraphiteDark, BlackPrimary)
                             )
                         ),
                     contentAlignment = Alignment.Center
@@ -536,7 +576,8 @@ fun AlbumCard(albumName: String, artist: String, coverUri: String?, onClick: () 
             text = albumName,
             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            color = MaterialTheme.colorScheme.onBackground
         )
         Text(
             text = artist,
@@ -557,10 +598,11 @@ fun QuickActionChip(
 ) {
     Surface(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
             .clickable { onClick() },
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33A855F7))
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),

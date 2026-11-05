@@ -9,13 +9,20 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [34])
 class ExampleRobolectricTest {
 
   @Test
   fun `read string from context`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val appName = context.getString(R.string.app_name)
-    assertEquals("My Application", appName)
+    assertEquals("Myato Player", appName)
+  }
+
+  @Test
+  fun `floating player prefs defaults`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    assertEquals(100, com.example.service.FloatingPlayerPrefs.getPanelSizePercent(context))
+    assertEquals(100, com.example.service.FloatingPlayerPrefs.getPanelOpacityPercent(context))
   }
 }

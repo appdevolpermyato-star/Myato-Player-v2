@@ -320,15 +320,16 @@ fun PlaylistItemCard(
     ) {
         Surface(
             modifier = Modifier.size(56.dp),
-            shape = RoundedCornerShape(10.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33A855F7))
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.linearGradient(
-                            listOf(Color(0xFF1F2937), Color(0xFF111827))
+                            listOf(Color(0xFF21172B), Color(0xFF121116))
                         )
                     ),
                 contentAlignment = Alignment.Center

@@ -10,19 +10,25 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-private val DarkColorScheme = darkColorScheme(
-    primary = Cyan,
-    secondary = Blue,
-    tertiary = LightGrey,
-    background = Black,
-    surface = DarkGrey,
-    onPrimary = Black,
+private val StreetCultureDarkColorScheme = darkColorScheme(
+    primary = PurplePrimary,
+    onPrimary = White,
+    primaryContainer = PurpleIntense,
+    onPrimaryContainer = White,
+    secondary = PurpleBright,
     onSecondary = White,
-    onTertiary = White,
+    secondaryContainer = GraphiteDark,
+    onSecondaryContainer = PurplePrimary,
+    tertiary = PurplePrimary,
+    onTertiary = BlackPrimary,
+    background = BlackPrimary,
     onBackground = White,
+    surface = BlackSecondary,
     onSurface = White,
-    surfaceVariant = LightGrey,
-    onSurfaceVariant = GreyText
+    surfaceVariant = GraphiteDark,
+    onSurfaceVariant = GrayMuted,
+    outline = PurpleBorder,
+    outlineVariant = GraphiteBorder
 )
 
 @Composable
@@ -30,14 +36,16 @@ fun MyApplicationTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    val colorScheme = DarkColorScheme // Always use dark theme for Myato Player
+    val colorScheme = StreetCultureDarkColorScheme
 
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
             window.statusBarColor = colorScheme.background.toArgb()
+            window.navigationBarColor = colorScheme.background.toArgb()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
+            WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = false
         }
     }
 

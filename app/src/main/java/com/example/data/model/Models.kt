@@ -21,7 +21,13 @@ data class Song(
     val lastPlayed: Long = 0L,
     val genre: String? = null,
     val folder: String? = null,
-    val isDownloaded: Boolean = false
+    val isDownloaded: Boolean = false,
+    
+    // Technical metadata
+    val bitrate: Int = 0,
+    val sampleRate: Int = 0,
+    val format: String = "Unknown",
+    val fileSize: Long = 0L
 ) {
     fun getUri(): Uri {
         return when {
@@ -44,26 +50,27 @@ data class Playlist(
 )
 
 @Serializable
-enum class DownloadStatus {
-    IDLE,
-    DOWNLOADING,
-    PAUSED,
-    COMPLETED,
-    FAILED
-}
+@Entity(tableName = "playback_history")
+data class PlaybackHistory(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val songId: String,
+    val timestamp: Long = System.currentTimeMillis(),
+    val playbackDuration: Long = 0L // How long the song was actually heard
+)
 
 @Serializable
-@Entity(tableName = "downloads")
-data class DownloadItem(
-    @PrimaryKey val id: String,
-    val url: String,
-    val title: String,
-    val artist: String = "Download da Web",
-    val totalBytes: Long = 0L,
-    val downloadedBytes: Long = 0L,
-    val status: DownloadStatus = DownloadStatus.DOWNLOADING,
-    val localPath: String? = null,
-    val speedText: String = "",
-    val errorMessage: String? = null,
-    val dateCreated: Long = System.currentTimeMillis()
+@Entity(tableName = "favorite_albums")
+data class FavoriteAlbum(
+    @PrimaryKey val albumName: String,
+    val artistName: String,
+    val coverUri: String? = null,
+    val dateAdded: Long = System.currentTimeMillis()
+)
+
+@Serializable
+@Entity(tableName = "favorite_artists")
+data class FavoriteArtist(
+    @PrimaryKey val artistName: String,
+    val coverUri: String? = null,
+    val dateAdded: Long = System.currentTimeMillis()
 )
